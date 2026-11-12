@@ -1,0 +1,9 @@
+{
+  "FakeSignApi": "",
+  "Version": "QQNT-v7.0.2-53644",
+  "Protocol": "both",
+  "Accounts": [],
+  "AutoReconnect": true,
+  "PersistLogin": true,
+  "AutoRestoreLogin": true
+}

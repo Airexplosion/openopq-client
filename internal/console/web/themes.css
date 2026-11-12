@@ -1,0 +1,144 @@
+/* Curated appearance themes:
+   - obsidian (曜石流光): default dark obsidian glass in style.css
+   - aurora   (极夜星芒): deep midnight sapphire-cyan auroral glass
+   - daylight (纯净极光): clean Antigravity pure-light glass contrast */
+
+#theme-status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ---------- Aurora: Midnight Sapphire & Cyan Stream ---------- */
+
+:root[data-theme="aurora"] {
+  color-scheme: dark;
+  --bg: #050b18;
+  --bg-mesh:
+    radial-gradient(ellipse 80% 54% at 15% -6%, rgba(14, 165, 233, 0.18), transparent 58%),
+    radial-gradient(ellipse 65% 48% at 88% 12%, rgba(99, 102, 241, 0.14), transparent 55%),
+    radial-gradient(ellipse 58% 48% at 72% 96%, rgba(45, 212, 191, 0.09), transparent 58%),
+    #050b18;
+
+  --surface-sidebar: rgba(7, 15, 31, 0.82);
+  --surface-topbar: rgba(6, 14, 29, 0.76);
+  --surface-glass: linear-gradient(160deg, rgba(14, 28, 54, 0.74), rgba(8, 17, 36, 0.86));
+  --surface-glass-hover: linear-gradient(160deg, rgba(19, 37, 70, 0.8), rgba(10, 22, 45, 0.9));
+  --surface-recessed: rgba(5, 11, 24, 0.7);
+  --surface-subtle: rgba(147, 210, 255, 0.045);
+  --surface-soft: rgba(147, 210, 255, 0.085);
+  --surface-hover: rgba(147, 210, 255, 0.13);
+  --surface-elevated: rgba(9, 20, 40, 0.95);
+  --option-bg: #09162c;
+
+  --hero-banner-bg: linear-gradient(135deg, rgba(8, 19, 40, 0.94) 0%, rgba(5, 13, 28, 0.9) 56%, rgba(7, 17, 36, 0.92) 100%);
+  --hero-banner-vignette: linear-gradient(90deg, rgba(5, 13, 28, 0.88) 0%, rgba(5, 13, 28, 0.52) 38%, rgba(5, 13, 28, 0) 58%);
+
+  --border: rgba(147, 210, 255, 0.13);
+  --border-soft: rgba(147, 210, 255, 0.08);
+  --border-strong: rgba(147, 210, 255, 0.22);
+
+  --accent: #38bdf8;
+  --accent-strong: #7dd3fc;
+  --accent-solid: linear-gradient(120deg, #0284c7, #2563eb 55%, #6366f1);
+  --accent-solid-hover: linear-gradient(120deg, #0ea5e9, #3b82f6 55%, #818cf8);
+  --accent-soft: rgba(56, 189, 248, 0.14);
+  --accent-soft-strong: rgba(56, 189, 248, 0.23);
+  --accent-border: rgba(56, 189, 248, 0.34);
+  --accent-ring: rgba(56, 189, 248, 0.22);
+
+  --chart-area: rgba(56, 189, 248, 0.15);
+  --chart-http: #a78bfa;
+}
+
+/* ---------- Daylight: Clean Antigravity Pure-Light Glass ---------- */
+
+:root[data-theme="daylight"] {
+  color-scheme: light;
+  --bg: #f8fafc;
+  --bg-mesh:
+    radial-gradient(ellipse 75% 48% at 15% -6%, rgba(59, 130, 246, 0.08), transparent 56%),
+    radial-gradient(ellipse 60% 45% at 88% 10%, rgba(139, 92, 246, 0.07), transparent 54%),
+    #f8fafc;
+
+  --surface-sidebar: rgba(255, 255, 255, 0.84);
+  --surface-topbar: rgba(255, 255, 255, 0.8);
+  --surface-glass: linear-gradient(160deg, rgba(255, 255, 255, 0.88), rgba(248, 250, 252, 0.94));
+  --surface-glass-hover: linear-gradient(160deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 252, 0.98));
+  --surface-recessed: rgba(241, 245, 249, 0.82);
+  --surface-subtle: rgba(15, 23, 42, 0.035);
+  --surface-soft: rgba(15, 23, 42, 0.06);
+  --surface-hover: rgba(15, 23, 42, 0.09);
+  --surface-elevated: rgba(255, 255, 255, 0.96);
+  --option-bg: #ffffff;
+
+  --hero-banner-bg: linear-gradient(135deg, rgba(255, 255, 255, 0.96) 0%, rgba(250, 252, 255, 0.94) 58%, rgba(246, 249, 254, 0.95) 100%);
+  --hero-banner-vignette: linear-gradient(90deg, rgba(255, 255, 255, 0.92) 0%, rgba(255, 255, 255, 0.56) 38%, rgba(255, 255, 255, 0) 58%);
+  --hero-cta-bg: #0f172a;
+  --hero-cta-fg: #ffffff;
+
+  --border: rgba(15, 23, 42, 0.085);
+  --border-soft: rgba(15, 23, 42, 0.055);
+  --border-strong: rgba(15, 23, 42, 0.15);
+  --border-highlight: rgba(255, 255, 255, 0.9);
+
+  --shadow-card: 0 10px 30px rgba(15, 23, 42, 0.05), inset 0 1px 0 var(--border-highlight);
+  --shadow-elevated: 0 20px 52px rgba(15, 23, 42, 0.12), inset 0 1px 0 var(--border-highlight);
+
+  --accent: #4f46e5;
+  --accent-strong: #4338ca;
+  --accent-solid: #0f172a;
+  --accent-solid-hover: #1e293b;
+  --accent-fg: #ffffff;
+  --accent-soft: rgba(79, 70, 229, 0.09);
+  --accent-soft-strong: rgba(79, 70, 229, 0.15);
+  --accent-border: rgba(79, 70, 229, 0.24);
+  --accent-ring: rgba(79, 70, 229, 0.16);
+
+  --text: #0f172a;
+  --text-secondary: #475569;
+  --text-tertiary: #64748b;
+
+  --success: #059669;
+  --success-soft: rgba(5, 150, 105, 0.1);
+  --success-border: rgba(5, 150, 105, 0.24);
+
+  --warning: #b45309;
+  --warning-soft: rgba(217, 119, 6, 0.1);
+  --warning-border: rgba(217, 119, 6, 0.24);
+
+  --danger: #e11d48;
+  --danger-strong: #be123c;
+  --danger-soft: rgba(225, 29, 72, 0.09);
+  --danger-border: rgba(225, 29, 72, 0.22);
+
+  --chart-grid: rgba(15, 23, 42, 0.07);
+  --chart-area: rgba(79, 70, 229, 0.1);
+  --chart-http: #0284c7;
+  --scrollbar-thumb: rgba(100, 116, 139, 0.26);
+  --scrollbar-thumb-hover: rgba(100, 116, 139, 0.42);
+}
+
+:root[data-theme="daylight"] .button.primary {
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.16);
+}
+
+:root[data-theme="daylight"] .button.hero-banner-primary {
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.16);
+}
+
+:root[data-theme="daylight"] .switch input:checked + .switch-track {
+  background: #4f46e5;
+  border-color: #4f46e5;
+}
+
+:root[data-theme="daylight"] .qr-image {
+  border-color: rgba(15, 23, 42, 0.1);
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.08);
+}

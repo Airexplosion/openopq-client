@@ -1,0 +1,15 @@
+/Config.json
+/Config.local*.json
+/data/
+/.runtime/
+/dist/
+/openopq
+/openopq.exe
+*.log
+*.jsonl
+*.key
+*.enc
+*.exe
+*.zip
+*.tar.gz
+__pycache__/
