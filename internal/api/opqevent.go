@@ -97,7 +97,7 @@ func opqEventJSON(ev protocol.MessageEvent) []byte {
 	head := opqMsgHead{
 		FromUin: m.FromUin, FromUid: m.FromUid, ToUin: m.ToUin, ToUid: m.ToUid,
 		SenderUin: m.SenderUin, SenderUid: m.SenderUid, SenderNick: m.SenderNick,
-		MsgSeq: m.MsgSeq, MsgTime: m.MsgTime, MsgUid: m.MsgUID,
+		MsgSeq: m.MsgSeq, MsgTime: m.MsgTime, MsgRandom: m.MsgRandom, MsgUid: m.MsgUID,
 		C2CTempMessageHead: nil,
 	}
 	body := &opqMsgBody{Content: m.Content, ContentRaw: m.Content}

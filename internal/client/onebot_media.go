@@ -127,7 +127,7 @@ func validateMediaURL(u *url.URL) error {
 	}
 	return fmt.Errorf("media URL is outside QQ media domains")
 }
-func downloadReceivedMedia(ctx context.Context, source, path string) error {
+func downloadReceivedMedia(ctx context.Context, source, path string, budgets ...int64) error {
 	u, e := url.Parse(source)
 	if e != nil {
 		return e
@@ -157,13 +157,17 @@ func downloadReceivedMedia(ctx context.Context, source, path string) error {
 	if e != nil {
 		return e
 	}
-	n, e := io.Copy(f, io.LimitReader(resp.Body, (30<<20)+1))
+	limit := int64(30 << 20)
+	if len(budgets) > 0 && budgets[0] < limit {
+		limit = max(0, budgets[0])
+	}
+	n, e := io.Copy(f, io.LimitReader(resp.Body, limit+1))
 	closeErr := f.Close()
 	if e == nil {
 		e = closeErr
 	}
-	if n > 30<<20 {
-		e = fmt.Errorf("media exceeds 30 MiB")
+	if n > limit {
+		e = fmt.Errorf("media exceeds file size or account cache limit")
 	}
 	if e != nil {
 		_ = os.Remove(path)
@@ -183,7 +187,10 @@ func (b *Bot) mediaAction(ctx context.Context, action string, raw json.RawMessag
 		p.File = p.FileID
 	}
 	kind := "image"
-	if action == "get_original_media" {
+	if action == "get_video" {
+		kind = "video"
+	}
+	if action == "get_original_media" || action == "get_file" {
 		b.obMedia.mu.Lock()
 		v, ok := b.obMedia.entries[p.File]
 		b.obMedia.mu.Unlock()
@@ -207,7 +214,7 @@ func (b *Bot) mediaAction(ctx context.Context, action string, raw json.RawMessag
 	}
 	var wireInfo map[string]any
 	var remoteURL string
-	if action != "get_original_media" {
+	if action == "get_image" || action == "get_record" {
 		var err error
 		remoteURL, err = b.mediaURL(ctx, v.Media)
 		if err != nil && kind != "image" {
@@ -246,22 +253,9 @@ func (b *Bot) mediaAction(ctx context.Context, action string, raw json.RawMessag
 			return nil, e
 		}
 	}
-	// The cache is owned by this bot. User supplied filenames never become paths.
-	entries, _ := os.ReadDir(r.root)
-	var total int64
-	for _, entry := range entries {
-		info, e := entry.Info()
-		if e != nil {
-			continue
-		}
-		if time.Since(info.ModTime()) > time.Hour {
-			_ = os.Remove(filepath.Join(r.root, entry.Name()))
-		} else {
-			total += info.Size()
-		}
-	}
-	if total > 256<<20 {
-		return nil, fmt.Errorf("account media cache is full; use clean_cache")
+	remaining, e := b.mediaCacheRemaining()
+	if e != nil {
+		return nil, e
 	}
 	h := sha256.Sum256([]byte(kind + ":" + p.File))
 	sourcePath := filepath.Join(r.root, hex.EncodeToString(h[:])+".source")
@@ -275,7 +269,7 @@ func (b *Bot) mediaAction(ctx context.Context, action string, raw json.RawMessag
 			}
 		}
 		var e error
-		if e = downloadReceivedMedia(ctx, source, sourcePath); e != nil {
+		if e = downloadReceivedMedia(ctx, source, sourcePath, remaining); e != nil {
 			return nil, e
 		}
 	}
@@ -291,10 +285,15 @@ func (b *Bot) mediaAction(ctx context.Context, action string, raw json.RawMessag
 		}
 	}
 	output := sourcePath
-	if kind == "record" && action != "get_original_media" {
+	if kind == "record" && action == "get_record" {
 		output = filepath.Join(r.root, hex.EncodeToString(h[:])+"."+p.Format)
 		if _, e := os.Stat(output); os.IsNotExist(e) {
 			if e = mediaconv.Convert(ctx, sourcePath, output, p.Format); e != nil {
+				_ = os.Remove(output)
+				return nil, e
+			}
+			if _, e = b.mediaCacheRemaining(); e != nil {
+				_ = os.Remove(output)
 				return nil, e
 			}
 		}
@@ -316,6 +315,37 @@ func (b *Bot) mediaAction(ctx context.Context, action string, raw json.RawMessag
 	}
 	return map[string]any{"file": output, "filename": v.Media.Name, "size": info.Size()}, nil
 }
+
+// mediaCacheRemaining is called with obMedia.op held, serializing writes and cleanup.
+func (b *Bot) mediaCacheRemaining() (int64, error) {
+	limit := b.options.MediaCacheMiB
+	if limit <= 0 || limit > (1<<43)-1 {
+		limit = 256
+	}
+	remaining := limit << 20
+	entries, err := os.ReadDir(b.obMedia.root)
+	if err != nil {
+		return 0, err
+	}
+	for _, entry := range entries {
+		info, err := entry.Info()
+		if err != nil {
+			return 0, err
+		}
+		if time.Since(info.ModTime()) > time.Hour {
+			if err := os.Remove(filepath.Join(b.obMedia.root, entry.Name())); err != nil {
+				return 0, err
+			}
+			continue
+		}
+		remaining -= info.Size()
+	}
+	if remaining < 0 {
+		return 0, fmt.Errorf("account media cache exceeds %d MiB; use clean_cache or increase MediaCacheMiB", limit)
+	}
+	return remaining, nil
+}
+
 func (b *Bot) cleanMedia() error {
 	r := &b.obMedia
 	r.op.Lock()

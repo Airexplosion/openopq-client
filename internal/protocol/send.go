@@ -184,12 +184,36 @@ func ParseSendResponse(answer []byte, temporary ...bool) (SendResult, error) {
 	return SendResult{Sequence: seq, Timestamp: pbU32(fields, 3)}, nil
 }
 
-// SendSegment is prevalidated ordered content. Bytes are consumed only for image.
+// SendSegment is prevalidated ordered content. Bytes are consumed for image and voice.
 type SendSegment struct {
 	Type, Text string
 	At         SendAt
 	Bytes      []byte
 	Face       uint32
+	Reply      *SendReply
+	Duration   uint32 // voice duration in seconds
+}
+
+// SendReply refers to a real message in this account's current conversation cache.
+type SendReply struct {
+	Sequence, SenderUin, Timestamp uint32
+	SenderUid                      string
+	Elements                       [][]byte
+}
+
+// ReplyElem encodes QQ's Elem.SrcMsg. Field numbers follow the QQ message schema
+// documented by LagrangeGo (client/packets/pb/message/element.proto).
+func ReplyElem(r SendReply) []byte {
+	fields := []Field{VarintField(1, uint64(r.Sequence)), VarintField(2, uint64(r.SenderUin)), VarintField(3, uint64(r.Timestamp))}
+	for _, e := range r.Elements {
+		fields = append(fields, BytesField(5, e))
+	}
+	reserve := []Field{VarintField(3, uint64(r.Sequence))}
+	if r.SenderUid != "" {
+		reserve = append(reserve, StringField(7, r.SenderUid))
+	}
+	fields = append(fields, BytesField(8, Marshal(reserve...)), VarintField(10, 0))
+	return Marshal(BytesField(45, Marshal(fields...)))
 }
 
 func AtElem(at SendAt) []byte { return atElement(at) }

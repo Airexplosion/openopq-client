@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -84,6 +85,7 @@ type ServiceExchange struct {
 	mu          sync.Mutex
 	seq         uint32
 	authFailure atomic.Pointer[Refusal]
+	signerLost  atomic.Pointer[error]
 }
 
 // NewServiceExchange wires a connection, a signer and an account together. The session is
@@ -129,7 +131,11 @@ func (e *ServiceExchange) Exchange(ctx context.Context, command string, body []b
 	// request is framed rather than after.
 	bundle, err := e.signer.Sign(ctx, command, seq, body)
 	if err != nil {
-		return nil, fmt.Errorf("sign %s: %w", command, err)
+		err = fmt.Errorf("sign %s: %w", command, err)
+		if errors.Is(err, sign.ErrSessionLost) {
+			e.signerLost.CompareAndSwap(nil, &err)
+		}
+		return nil, err
 	}
 	trace("signed")
 	// Experimental: a real 7.0.2 client's trans_emp fetch carries no device token in its sign
@@ -193,6 +199,16 @@ func (e *ServiceExchange) AuthenticationError() error {
 	return nil
 }
 func (e *ServiceExchange) ResetAuthenticationError() { e.authFailure.Store(nil) }
+
+// SignerSessionError reports that the signer forgot this connection's session (it
+// restarted). Every later signature on this connection would be refused, so the
+// supervisor rebuilds the connection, preparing a fresh signer session.
+func (e *ServiceExchange) SignerSessionError() error {
+	if lost := e.signerLost.Load(); lost != nil {
+		return *lost
+	}
+	return nil
+}
 
 // NextSequence reports the sequence the next request will carry, for logging.
 func (e *ServiceExchange) NextSequence() uint32 {

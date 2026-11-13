@@ -480,7 +480,7 @@ func (s *Server) dispatchOneBotAction(ctx context.Context, act obAction) obRespo
 			return obFail(err.Error(), act.Echo)
 		}
 
-		if nativeRich && len(parseCQRecords(cq)) == 0 {
+		if nativeRich {
 			segments := []protocol.SendSegment{}
 			total := 0
 			for _, seg := range cqSegments(cq) {
@@ -488,6 +488,12 @@ func (s *Server) dispatchOneBotAction(ctx context.Context, act obAction) obRespo
 				d := seg["data"].(map[string]string)
 				part := protocol.SendSegment{Type: typ}
 				switch typ {
+				case "reply":
+					id, _ := strconv.ParseInt(d["id"], 10, 32)
+					part.Reply, err = s.cachedReply(int32(id), target)
+					if err != nil {
+						return obBad(err.Error(), act.Echo)
+					}
 				case "text":
 					part.Text = d["text"]
 				case "at":
@@ -498,7 +504,7 @@ func (s *Server) dispatchOneBotAction(ctx context.Context, act obAction) obRespo
 				case "face":
 					v, _ := strconv.ParseUint(d["id"], 10, 32)
 					part.Face = uint32(v)
-				case "image":
+				case "image", "record":
 					src := d["file"]
 					if src == "" {
 						src = d["url"]
@@ -507,11 +513,19 @@ func (s *Server) dispatchOneBotAction(ctx context.Context, act obAction) obRespo
 					if e != nil {
 						return obFail(e.Error(), act.Echo)
 					}
-					total += len(data)
-					if total > 60<<20 {
-						return obBad("message images exceed 60 MiB", act.Echo)
+					if typ == "record" {
+						data, duration, e := mediaconv.Encode(ctx, data)
+						if e != nil {
+							return obFail("record: "+e.Error(), act.Echo)
+						}
+						part.Bytes, part.Duration = data, duration
+					} else {
+						part.Bytes = data
 					}
-					part.Bytes = data
+					total += len(part.Bytes)
+					if total > 60<<20 {
+						return obBad("message media exceed 60 MiB", act.Echo)
+					}
 				}
 				segments = append(segments, part)
 			}
@@ -662,7 +676,13 @@ func (s *Server) handleOneBotManage(ctx context.Context, act obAction) obRespons
 		err = mgr.SetSpecialTitle(ctx, uint32(p.GroupID), uint32(p.UserID), p.SpecialTitle)
 	case "group_poke", "send_group_poke":
 		err = mgr.PokeMember(ctx, uint32(p.GroupID), uint32(p.UserID))
-	case "send_poke", "friend_poke":
+	case "send_poke":
+		if p.GroupID != 0 {
+			err = mgr.PokeMember(ctx, uint32(p.GroupID), uint32(p.UserID))
+		} else {
+			err = mgr.PokeFriend(ctx, uint32(p.UserID))
+		}
+	case "friend_poke":
 		err = mgr.PokeFriend(ctx, uint32(p.UserID))
 	default:
 		return obFail("unsupported action: "+act.Action, act.Echo)

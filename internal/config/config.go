@@ -24,11 +24,13 @@ type FileListEntry struct {
 // Config mirrors the published document. Version is the client identity the framework
 // claims, and it has to agree with the build the signer speaks for.
 type Config struct {
-	CDNLists    []string        `json:"CDNLists"`
-	FakeSignAPI string          `json:"FakeSignApi"`
-	FileLists   []FileListEntry `json:"FileLists"`
-	Version     string          `json:"Version"`
-	Accounts    []string        `json:"Accounts,omitempty"`
+	// MediaCacheMiB is the per-account disk cache limit. Zero uses 256 MiB.
+	MediaCacheMiB int64           `json:"MediaCacheMiB,omitempty"`
+	CDNLists      []string        `json:"CDNLists"`
+	FakeSignAPI   string          `json:"FakeSignApi"`
+	FileLists     []FileListEntry `json:"FileLists"`
+	Version       string          `json:"Version"`
+	Accounts      []string        `json:"Accounts,omitempty"`
 	// Omitted means enabled. Explicit false stops retries after a QQ network outage.
 	AutoReconnect    *bool `json:"AutoReconnect,omitempty"`
 	PersistLogin     *bool `json:"PersistLogin,omitempty"`
@@ -73,6 +75,9 @@ func Load(path string) (*Config, error) {
 	}
 	if endpoint.User != nil && endpoint.Scheme != "https" && endpoint.Hostname() != "127.0.0.1" && endpoint.Hostname() != "localhost" && endpoint.Hostname() != "::1" {
 		return nil, fmt.Errorf("signer credentials require HTTPS, except on loopback")
+	}
+	if config.MediaCacheMiB < 0 || config.MediaCacheMiB > (1<<43)-1 {
+		return nil, fmt.Errorf("MediaCacheMiB must be non-negative and fit in bytes")
 	}
 	normalized, err := api.NormalizeOneBotConfig(config.OneBot)
 	if err != nil {

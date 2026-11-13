@@ -73,6 +73,9 @@ func (b *Bot) readEvents(ctx context.Context, conn Connection, exchange Exchange
 		if err := exchangeAuthenticationError(exchange); err != nil {
 			return err
 		}
+		if err := exchangeSignerSessionError(exchange); err != nil {
+			return err
+		}
 		b.mu.Lock()
 		beat := b.beat
 		b.mu.Unlock()

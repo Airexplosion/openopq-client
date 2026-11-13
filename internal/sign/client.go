@@ -14,10 +14,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"sync"
 	"time"
 )
+
+// ErrSessionLost means the signer no longer knows this client's session, as after a
+// signer restart. A signer that cannot resume sessions will refuse every later request
+// on it, so the connection has to be rebuilt (which prepares a new session) right away
+// instead of waiting for heartbeats to fail.
+var ErrSessionLost = errors.New("signer session lost")
 
 // Bundle is one signature set as the client protocol expects it.
 type Bundle struct {
@@ -137,6 +144,13 @@ func (c *Client) Sign(ctx context.Context, cmd string, seq uint32, packet []byte
 				}
 				continue
 			}
+			if errors.Is(err, errResumeDenied) {
+				// This signer does not know the session and will not take the resume
+				// secret either: its checkpoint is gone, or a gateway moved us to a
+				// different signer. Nothing can be signed on this session again, so
+				// report it as lost and let the connection be rebuilt now.
+				return Bundle{}, fmt.Errorf("%w: %w", ErrSessionLost, err)
+			}
 			if err != nil {
 				return Bundle{}, err
 			}
@@ -164,6 +178,12 @@ func (c *Client) Sign(ctx context.Context, cmd string, seq uint32, packet []byte
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
+		if resp.StatusCode == http.StatusConflict {
+			data, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+			if code := errorCode(data); code == "prepare_signer_session_first" || code == "session_closed" {
+				return Bundle{}, fmt.Errorf("signer returned HTTP 409 (%s): %w", code, ErrSessionLost)
+			}
+		}
 		return Bundle{}, fmt.Errorf("signer returned HTTP %d", resp.StatusCode)
 	}
 	var decoded response

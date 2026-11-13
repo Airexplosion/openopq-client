@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/url"
 	"strconv"
+	"strings"
+	"time"
 
 	"openopq/internal/bot"
 	"openopq/internal/protocol"
@@ -17,7 +19,7 @@ import (
 func NewOneBotQueryBackend(exchange Exchange) *Bot { return &Bot{exchange: exchange} }
 
 func (b *Bot) SupportedOneBotActions() []string {
-	return []string{"set_friend_add_request", "set_group_add_request", "get_forward_msg", "get_image", "get_record", "get_group_system_msg", "clean_cache", "get_friend_list", "get_group_member_list", "get_group_member_info", "get_stranger_info", "send_like", "get_cookies", "get_csrf_token", "get_credentials"}
+	return []string{"set_friend_add_request", "set_group_add_request", "get_forward_msg", "get_image", "get_record", "get_video", "get_file", "get_group_system_msg", "get_group_ignore_add_request", "get_group_ignored_notices", "clean_cache", "get_friend_list", "get_friends_with_category", "get_group_member_list", "get_group_member_info", "get_stranger_info", "send_like", "get_cookies", "get_csrf_token", "get_credentials", "get_clientkey", "set_friend_remark", "set_group_remark", "delete_friend", "mark_msg_as_read", "mark_group_msg_as_read", "mark_private_msg_as_read", "get_group_msg_history", "get_friend_msg_history", "check_url_safely", "get_group_at_all_remain", "send_group_sign", "set_group_sign", "get_group_shut_list", "get_group_info_ex", "get_group_detail_info", "get_rkey", "nc_get_rkey", "ocr_image", ".ocr_image", "get_group_root_files", "get_group_files_by_folder", "get_group_file_url", "get_group_file_system_info", "delete_group_file", "create_group_file_folder", "delete_group_folder", "move_group_file", "rename_group_file", "set_group_file_folder_name", "rename_group_file_folder", "trans_group_file", "get_private_file_url", "download_file", "nc_get_packet_status", "get_online_clients"}
 }
 
 // Field identifiers follow the published NT protobuf schemas, documented in
@@ -100,24 +102,34 @@ func (b *Bot) oneBotFriends(ctx context.Context) ([]map[string]any, error) {
 			if uin == 0 || uid == "" {
 				return nil, fmt.Errorf("invalid friend identity in response")
 			}
-			props := map[uint32]string{}
+			props, category := map[uint32]string{}, map[uint32]string{}
 			for _, a := range v {
 				if a.Tag != 10001 || !a.IsData {
 					continue
 				}
 				af := obFields(a.Data)
-				if obNumber(af, 1) != 1 {
+				dest := props
+				switch obNumber(af, 1) {
+				case 1:
+					dest = props
+				case 4:
+					dest = category
+				default:
 					continue
 				}
 				for _, p := range obFields(obBytes(af, 2)) {
 					if p.Tag == 2 && p.IsData {
 						pf := obFields(p.Data)
-						props[obNumber(pf, 1)] = obString(pf, 2)
+						dest[obNumber(pf, 1)] = obString(pf, 2)
 					}
 				}
 			}
 			b.remember(uin, uid, props[20002])
-			out = append(out, map[string]any{"user_id": uin, "nickname": props[20002], "remark": props[103]})
+			catID, _ := strconv.ParseUint(category[100], 10, 32)
+			out = append(out, map[string]any{
+				"user_id": uin, "nickname": props[20002], "remark": props[103],
+				"category_id": uint32(catID), "category_name": category[101],
+			})
 		}
 		token = obNumber(obFields(obBytes(fields, 2)), 1)
 		if token == 0 {
@@ -190,16 +202,40 @@ func (b *Bot) OneBotAction(ctx context.Context, action string, raw json.RawMessa
 		return nil, fmt.Errorf("invalid action parameters: %w", err)
 	}
 	switch action {
-	case "set_friend_add_request", "set_group_add_request", "get_group_system_msg":
+	case "set_friend_add_request", "set_group_add_request", "get_group_system_msg", "get_group_ignore_add_request", "get_group_ignored_notices":
 		return b.requestAction(ctx, action, raw)
 	case "get_forward_msg":
 		return b.forwardAction(ctx, raw)
 	case "clean_cache":
 		return nil, b.cleanMedia()
-	case "get_image", "get_record":
+	case "get_image", "get_record", "get_video", "get_file":
 		return b.mediaAction(ctx, action, raw)
 	case "get_friend_list":
 		return b.oneBotFriends(ctx)
+	case "get_friends_with_category":
+		friends, err := b.oneBotFriends(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return groupFriendsByCategory(friends), nil
+	case "get_group_shut_list":
+		if p.GroupID == 0 {
+			return nil, fmt.Errorf("group_id required")
+		}
+		members, err := b.oneBotMembers(ctx, p.GroupID)
+		if err != nil {
+			return nil, err
+		}
+		now := uint32(time.Now().Unix())
+		out := []map[string]any{}
+		for _, m := range members {
+			stamp, _ := m["shut_up_timestamp"].(uint32)
+			if stamp == 0 || (stamp != ^uint32(0) && stamp <= now) {
+				continue
+			}
+			out = append(out, m)
+		}
+		return out, nil
 	case "get_group_member_list", "get_group_member_info":
 		if p.GroupID == 0 {
 			return nil, fmt.Errorf("group_id required")
@@ -280,9 +316,164 @@ func (b *Bot) OneBotAction(ctx context.Context, action string, raw json.RawMessa
 		}
 		body := protocol.Marshal(protocol.StringField(11, uid), protocol.VarintField(12, 71), protocol.VarintField(13, uint64(times)))
 		return nil, b.oidbDo(ctx, protocol.BuildOIDB(protocol.OIDBRequest{Command: protocol.OIDBCommand{Service: 0x7e5, SubCommand: 104}, Body: body}), protocol.OidbCommand(0x7e5, 104))
+	case "set_friend_remark":
+		var extra struct {
+			Remark string `json:"remark"`
+		}
+		if json.Unmarshal(raw, &extra) != nil {
+			return nil, fmt.Errorf("invalid action parameters")
+		}
+		if p.UserID == 0 {
+			return nil, fmt.Errorf("user_id required")
+		}
+		if len(extra.Remark) > 128 {
+			return nil, fmt.Errorf("remark is too long")
+		}
+		return nil, b.SetFriendRemark(ctx, p.UserID, extra.Remark)
+	case "set_group_remark":
+		var extra struct {
+			Remark string `json:"remark"`
+		}
+		if json.Unmarshal(raw, &extra) != nil {
+			return nil, fmt.Errorf("invalid action parameters")
+		}
+		if p.GroupID == 0 {
+			return nil, fmt.Errorf("group_id required")
+		}
+		if len(extra.Remark) > 128 {
+			return nil, fmt.Errorf("remark is too long")
+		}
+		return nil, b.SetGroupRemark(ctx, p.GroupID, extra.Remark)
+	case "get_group_at_all_remain":
+		if p.GroupID == 0 {
+			return nil, fmt.Errorf("group_id required")
+		}
+		info, e := b.AtAllRemain(ctx, p.GroupID)
+		if e != nil {
+			return nil, e
+		}
+		return map[string]any{
+			"can_at_all":                    info.CanAtAll,
+			"remain_at_all_count_for_uin":   info.CountForUin,
+			"remain_at_all_count_for_group": info.CountForGroup,
+		}, nil
+	case "check_url_safely":
+		var extra struct {
+			URL string `json:"url"`
+		}
+		if json.Unmarshal(raw, &extra) != nil || extra.URL == "" {
+			return nil, fmt.Errorf("url required")
+		}
+		if len(extra.URL) > 2048 || strings.ContainsAny(extra.URL, "\x00\r\n") {
+			return nil, fmt.Errorf("invalid url")
+		}
+		level, e := b.CheckURL(ctx, extra.URL)
+		if e != nil {
+			return nil, e
+		}
+		return map[string]any{"level": level}, nil
+	case "send_group_sign", "set_group_sign":
+		if p.GroupID == 0 {
+			return nil, fmt.Errorf("group_id required")
+		}
+		info, e := b.GroupSign(ctx, p.GroupID)
+		if e != nil {
+			return nil, e
+		}
+		return map[string]any{
+			"title": info.Title, "keep_day_text": info.KeepDayText,
+			"group_rank_text": info.GroupRank, "detail_url": info.DetailURL,
+		}, nil
+	case "get_clientkey":
+		key, e := b.ClientKey(ctx)
+		if e != nil {
+			return nil, e
+		}
+		return map[string]any{"clientkey": key.Key}, nil
+	case "delete_friend":
+		var extra struct {
+			Block bool `json:"block"`
+		}
+		_ = json.Unmarshal(raw, &extra)
+		if p.UserID == 0 {
+			return nil, fmt.Errorf("user_id required")
+		}
+		return nil, b.DeleteFriend(ctx, p.UserID, extra.Block)
+	case "mark_group_msg_as_read":
+		var extra struct {
+			Seq uint32 `json:"message_seq"`
+		}
+		_ = json.Unmarshal(raw, &extra)
+		if p.GroupID == 0 {
+			return nil, fmt.Errorf("group_id required")
+		}
+		if extra.Seq == 0 {
+			return nil, fmt.Errorf("message_seq required")
+		}
+		return nil, b.MarkGroupRead(ctx, p.GroupID, extra.Seq)
+	case "mark_private_msg_as_read":
+		var extra struct {
+			Seq  uint32 `json:"message_seq"`
+			Time uint32 `json:"time"`
+		}
+		_ = json.Unmarshal(raw, &extra)
+		if p.UserID == 0 {
+			return nil, fmt.Errorf("user_id required")
+		}
+		if extra.Seq == 0 {
+			return nil, fmt.Errorf("message_seq required")
+		}
+		if extra.Time == 0 {
+			extra.Time = uint32(time.Now().Unix())
+		}
+		return nil, b.MarkPrivateRead(ctx, p.UserID, extra.Time, extra.Seq)
+	case "get_group_msg_history":
+		var extra struct {
+			Seq   uint32 `json:"message_seq"`
+			Count uint32 `json:"count"`
+		}
+		_ = json.Unmarshal(raw, &extra)
+		if p.GroupID == 0 {
+			return nil, fmt.Errorf("group_id required")
+		}
+		if extra.Seq == 0 {
+			return []*protocol.IncomingMessage{}, nil
+		}
+		count := extra.Count
+		if count == 0 {
+			count = 20
+		}
+		if count > 28 {
+			count = 28
+		}
+		start := extra.Seq + 1 - count
+		if start < 1 || start > extra.Seq {
+			start = 1
+		}
+		return b.GroupMessages(ctx, p.GroupID, start, extra.Seq)
+	case "get_friend_msg_history":
+		var extra struct {
+			Time  uint32 `json:"time"`
+			Count uint32 `json:"count"`
+		}
+		_ = json.Unmarshal(raw, &extra)
+		if p.UserID == 0 {
+			return nil, fmt.Errorf("user_id required")
+		}
+		count := extra.Count
+		if count == 0 {
+			count = 20
+		}
+		if count > 28 {
+			count = 28
+		}
+		if extra.Time == 0 {
+			extra.Time = uint32(time.Now().Unix())
+		}
+		return b.FriendMessages(ctx, p.UserID, extra.Time, count)
 	case "get_cookies", "get_csrf_token", "get_credentials":
-		if p.Domain != "" && p.Domain != "qq.com" {
-			return nil, fmt.Errorf("domain-specific p_skey is unavailable")
+		if p.Domain != "" && (len(p.Domain) > 253 || strings.ContainsAny(p.Domain, "\x00\r\n /")) {
+			return nil, fmt.Errorf("invalid domain")
 		}
 		credentials := b.Credentials()
 		self, e := b.Self(ctx)
@@ -297,7 +488,25 @@ func (b *Bot) OneBotAction(ctx context.Context, action string, raw json.RawMessa
 			token += token<<5 + uint32(c)
 		}
 		token &= 0x7fffffff
-		cookie := "uin=o" + strconv.FormatUint(uint64(self.Uin), 10) + "; skey=" + url.QueryEscape(credentials.Skey) + ";"
+		uin := "o" + strconv.FormatUint(uint64(self.Uin), 10)
+		cookie := "uin=" + uin + "; skey=" + url.QueryEscape(credentials.Skey) + ";"
+		if p.Domain != "" && p.Domain != "qq.com" {
+			cookies, e := b.DomainCookies(ctx, p.Domain)
+			if e != nil {
+				return nil, e
+			}
+			pskey := ""
+			for _, c := range cookies {
+				if c.Value != "" {
+					pskey = c.Value
+					break
+				}
+			}
+			if pskey == "" {
+				return nil, fmt.Errorf("no p_skey for domain %s", p.Domain)
+			}
+			cookie += " p_uin=" + uin + "; p_skey=" + url.QueryEscape(pskey) + ";"
+		}
 		if action == "get_cookies" {
 			return map[string]any{"cookies": cookie}, nil
 		}
@@ -305,9 +514,64 @@ func (b *Bot) OneBotAction(ctx context.Context, action string, raw json.RawMessa
 			return map[string]any{"token": token}, nil
 		}
 		return map[string]any{"cookies": cookie, "csrf_token": token}, nil
+	case "get_rkey", "nc_get_rkey", "ocr_image", ".ocr_image", "get_group_info_ex", "get_group_detail_info",
+		"get_group_root_files", "get_group_files_by_folder", "get_group_file_url",
+		"get_group_file_system_info", "delete_group_file", "create_group_file_folder",
+		"delete_group_folder", "move_group_file", "rename_group_file",
+		"set_group_file_folder_name", "rename_group_file_folder", "trans_group_file",
+		"get_private_file_url", "download_file":
+		return b.oneBotFileAction(ctx, action, raw)
+	case "nc_get_packet_status":
+		if _, err := b.service(); err != nil {
+			return nil, err
+		}
+		return true, nil
+	case "get_online_clients":
+		dev := b.Device()
+		name := dev.DeviceName
+		if name == "" {
+			name = "openopq"
+		}
+		kind := "PC"
+		if strings.Contains(strings.ToLower(dev.OS), "mac") {
+			kind = "Mac"
+		} else if strings.Contains(strings.ToLower(dev.OS), "linux") {
+			kind = "Linux"
+		}
+		appID := b.account.AppID
+		if appID == 0 {
+			appID = dev.AppID
+		}
+		return map[string]any{"clients": []map[string]any{{
+			"app_id": appID, "device_name": name, "device_kind": kind,
+		}}}, nil
 	default:
 		return nil, fmt.Errorf("%w: %s", bot.ErrUnsupported, action)
 	}
+}
+
+func groupFriendsByCategory(friends []map[string]any) []map[string]any {
+	order := []uint32{}
+	grouped := map[uint32]map[string]any{}
+	for _, f := range friends {
+		id, _ := f["category_id"].(uint32)
+		name, _ := f["category_name"].(string)
+		g, ok := grouped[id]
+		if !ok {
+			if name == "" && id == 0 {
+				name = "默认分组"
+			}
+			g = map[string]any{"category_id": id, "category_name": name, "friends": []map[string]any{}}
+			grouped[id] = g
+			order = append(order, id)
+		}
+		g["friends"] = append(g["friends"].([]map[string]any), f)
+	}
+	out := make([]map[string]any, 0, len(order))
+	for _, id := range order {
+		out = append(out, grouped[id])
+	}
+	return out
 }
 
 func (b *Bot) RecallPrivateMessage(ctx context.Context, target protocol.SendTarget, result protocol.SendResult) error {

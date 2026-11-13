@@ -232,7 +232,7 @@ func TestV11ForwardMessagesAndCachedAlias(t *testing.T) {
 	}
 	data := response.Data.(map[string]any)
 	messages := data["messages"].([]map[string]any)
-	if len(data) != 1 || len(messages) != 1 || messages[0]["message_seq"] != float64(17) || messages[0]["post_type"] != "message" {
+	if len(data) != 2 || len(data["message"].([]map[string]any)) != len(messages) || len(messages) != 1 || messages[0]["message_seq"] != float64(17) || messages[0]["post_type"] != "message" {
 		t.Fatal(data)
 	}
 	if _, ok := messages[0]["message"].([]any); !ok {

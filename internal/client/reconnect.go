@@ -68,6 +68,15 @@ func exchangeAuthenticationError(exchange Exchange) error {
 	return nil
 }
 
+// A signer that lost the session is not a login failure: the error is neither a Refusal
+// nor sessionTerminated, so the supervisor reconnects with the saved tickets.
+func exchangeSignerSessionError(exchange Exchange) error {
+	if s, ok := exchange.(interface{ SignerSessionError() error }); ok {
+		return s.SignerSessionError()
+	}
+	return nil
+}
+
 func isNetworkFailure(err error) bool {
 	var n net.Error
 	return errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, net.ErrClosed) ||

@@ -31,11 +31,15 @@ type IncomingMessage struct {
 	GroupCard    string
 	MsgSeq       uint32
 	MsgTime      uint32
+	MsgRandom    uint32
 	MsgUID       uint64
 	Content      string
 	Images       []MessageImage
 	Ats          []MessageAt
 	Segments     []Segment
+	// Original rich elements are retained for quoted replies, without nested quotes.
+	RichElements [][]byte
+	ReplyTo      *SendReply
 }
 
 // MessageImage is one image in a received message, with the fields the OPQ event reports.
@@ -155,11 +159,13 @@ func decodeMessageBody(pmb []Field) *IncomingMessage {
 		}
 	}
 
-	// ContentHead (field 2): Sequence(5), TimeStamp(6), NewId(12 = message uid).
+	// ContentHead (field 2): MsgId(4) is the NT random, Sequence(5), TimeStamp(6),
+	// NewId(12 = message uid).
 	if ch, ok := FirstField(pmb, 2); ok && ch.IsData {
 		head, err := EveryField(ch.Data)
 		if err == nil {
 			m.IsTemporary = pbU32(head, 1) == 141
+			m.MsgRandom = pbU32(head, 4)
 			m.MsgSeq = pbU32(head, 5)
 			m.MsgTime = pbU32(head, 6)
 			m.MsgUID = pbU64(head, 12)
@@ -188,6 +194,30 @@ func decodeMessageBody(pmb []Field) *IncomingMessage {
 						ef, err := EveryField(elem.Data)
 						if err != nil {
 							continue
+						}
+						if _, quote := FirstField(ef, 45); !quote {
+							m.RichElements = append(m.RichElements, append([]byte(nil), elem.Data...))
+						} else if src, ok := FirstField(ef, 45); ok {
+							if sf, e := EveryField(src.Data); e == nil {
+								r := &SendReply{Sequence: pbU32(sf, 1), SenderUin: pbU32(sf, 2), Timestamp: pbU32(sf, 3)}
+								// Repeated uint32 fields may be packed by protobuf implementations.
+								if seq, ok := FirstField(sf, 1); ok && seq.IsData {
+									v, n := binary.Uvarint(seq.Data)
+									if n > 0 {
+										r.Sequence = uint32(v)
+									}
+								}
+								reserve, _ := EveryField(pbBytes(sf, 8))
+								r.SenderUid = pbStr(reserve, 7)
+								for _, e := range FieldsWith(sf, 5) {
+									if e.IsData {
+										r.Elements = append(r.Elements, append([]byte(nil), e.Data...))
+									}
+								}
+								if r.Sequence != 0 && r.SenderUin != 0 && r.Timestamp != 0 {
+									m.ReplyTo = r
+								}
+							}
 						}
 						if t, ok := FirstField(ef, 1); ok && t.IsData { // Text element (text or @)
 							tf, err := EveryField(t.Data)

@@ -1,17 +1,18 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
-	"openopq/internal/bot"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
+	"openopq/internal/bot"
 	"openopq/internal/protocol"
 )
 
@@ -170,6 +171,12 @@ func validatedOBMessage(raw json.RawMessage, escape bool, rich ...bool) (string,
 			return string(seg.Data[key])
 		}
 		switch seg.Type {
+		case "reply":
+			id, e := strconv.ParseInt(value("id"), 10, 32)
+			if e != nil || id <= 0 || len(seg.Data) != 1 {
+				return "", fmt.Errorf("reply requires a positive message id only")
+			}
+			fmt.Fprintf(&b, "[CQ:reply,id=%d]", id)
 		case "text":
 			if _, ok := seg.Data["text"]; !ok {
 				return "", fmt.Errorf("text segment requires text")
@@ -213,10 +220,6 @@ func validatedOBMessage(raw json.RawMessage, escape bool, rich ...bool) (string,
 				return "", fmt.Errorf("media option %s is not implemented", k)
 			}
 			fmt.Fprintf(&b, "[CQ:%s,file=%s]", seg.Type, cqEscapeParam(src))
-		case "reply":
-			// Quoting is not implemented yet. Clients such as Dice!Next quote the message
-			// they answer on every reply, so refusing the segment would refuse every reply;
-			// send the rest of the message without the quote instead.
 		default:
 			return "", fmt.Errorf("unsupported message segment: %s", seg.Type)
 		}
@@ -231,7 +234,7 @@ func validatedOBMessage(raw json.RawMessage, escape bool, rich ...bool) (string,
 }
 func validateCQ(text string, rich ...bool) error {
 	native := len(rich) > 0 && rich[0]
-	images, records, ats, faces := 0, 0, 0, 0
+	images, records, ats, faces, replies := 0, 0, 0, 0, 0
 	for rest := text; ; {
 		i := strings.Index(rest, "[CQ:")
 		if i < 0 {
@@ -255,6 +258,12 @@ func validateCQ(text string, rich ...bool) error {
 			opts[k] = cqUnescape(val)
 		}
 		switch p[0] {
+		case "reply":
+			replies++
+			id, e := strconv.ParseInt(opts["id"], 10, 32)
+			if !native || e != nil || id <= 0 || len(opts) != 1 || replies > 1 {
+				return fmt.Errorf("invalid or unavailable reply")
+			}
 		case "face":
 			faces++
 			if !native {
@@ -293,7 +302,8 @@ func validateCQ(text string, rich ...bool) error {
 			return fmt.Errorf("unsupported CQ segment %s", p[0])
 		}
 	}
-	if images > 20 || records > 1 || (!native && images > 1) || (records > 0 && (ats > 0 || faces > 0 || images > 0 || strings.TrimSpace(stripCQ(text)) != "")) || (!native && images > 0 && ats > 0) {
+	recordWithOthers := records > 0 && (ats > 0 || faces > 0 || images > 0 || strings.TrimSpace(stripCQ(text)) != "")
+	if images > 20 || records > 1 || (!native && images > 1) || recordWithOthers || (records > 0 && replies > 0 && !native) || (!native && images > 0 && ats > 0) {
 		return fmt.Errorf("this backend cannot send this mixed-media combination without loss")
 	}
 	return nil
@@ -351,6 +361,7 @@ type obCachedMessage struct {
 	Sent    bool
 	Data    map[string]any
 	Created time.Time
+	Reply   *protocol.SendReply
 }
 
 func (o *oneBotRuntime) remember(m obCachedMessage) int32 {
@@ -362,6 +373,9 @@ func (o *oneBotRuntime) remember(m obCachedMessage) int32 {
 		// native receipt needed for private recall.
 		m.Data["message_id"], m.Data["real_id"] = id, id
 		old.Data = m.Data
+		if m.Reply != nil {
+			old.Reply = m.Reply
+		}
 		if m.Sent {
 			old.Sent, old.Result = true, m.Result
 		}
@@ -400,7 +414,7 @@ func (o *oneBotRuntime) rememberSend(ctx context.Context, target protocol.SendTa
 	_ = json.Unmarshal(onebotEventJSON(protocol.MessageEvent{SelfUin: self.Uin, Msg: m}), &data)
 	data["message"], data["raw_message"] = cq, cq
 	data = cachedOneBotEvent(data)
-	return o.remember(obCachedMessage{Key: oneBotMessageKey(target, self.Uin, result.Sequence, result.Timestamp), Target: target, Result: result, Sent: true, Data: data})
+	return o.remember(obCachedMessage{Key: oneBotMessageKey(target, self.Uin, result.Sequence, result.Timestamp), Target: target, Result: result, Sent: true, Data: data, Reply: &protocol.SendReply{Sequence: result.Sequence, Timestamp: result.Timestamp, SenderUin: self.Uin, Elements: [][]byte{protocol.TextElem(stripCQ(cq))}}})
 }
 func (o *oneBotRuntime) event(ev protocol.MessageEvent) []byte {
 	b := onebotEventJSON(ev)
@@ -418,9 +432,15 @@ func (o *oneBotRuntime) event(ev protocol.MessageEvent) []byte {
 				target = protocol.SendTarget{Uin: m.ToUin, Uid: m.ToUid, TempGroup: m.TempGroupUin}
 			}
 		}
-		message := any(cqMessage(m))
+		cq := cqMessage(m)
+		if m.ReplyTo != nil {
+			quoteID := o.rememberQuote(target, *m.ReplyTo)
+			cq = fmt.Sprintf("[CQ:reply,id=%d]", quoteID) + cq
+		}
+		v["raw_message"] = cq
+		message := any(cq)
 		if o.format() == "array" {
-			message = cqSegments(cqMessage(m))
+			message = cqSegments(cq)
 		}
 		v["message"] = message
 		if m.IsGroup {
@@ -430,7 +450,11 @@ func (o *oneBotRuntime) event(ev protocol.MessageEvent) []byte {
 		sender["sex"] = "unknown"
 		sender["age"] = 0
 		data := cachedOneBotEvent(v)
-		id := o.remember(obCachedMessage{Key: oneBotMessageKey(target, m.SenderUin, m.MsgSeq, m.MsgTime), Target: target, Result: protocol.SendResult{Sequence: m.MsgSeq, Timestamp: m.MsgTime}, Data: data})
+		elems := m.RichElements
+		if len(elems) == 0 {
+			elems = [][]byte{protocol.TextElem(m.Content)}
+		}
+		id := o.remember(obCachedMessage{Key: oneBotMessageKey(target, m.SenderUin, m.MsgSeq, m.MsgTime), Target: target, Result: protocol.SendResult{Sequence: m.MsgSeq, Timestamp: m.MsgTime, Random: m.MsgRandom}, Data: data, Reply: &protocol.SendReply{Sequence: m.MsgSeq, SenderUin: m.SenderUin, SenderUid: m.SenderUid, Timestamp: m.MsgTime, Elements: elems}})
 		v["message_id"] = id
 	} else if ev.Notice != nil && (ev.Notice.Kind == protocol.NoticeGroupRecall || ev.Notice.Kind == protocol.NoticeFriendRecall) {
 		n := ev.Notice
@@ -510,42 +534,27 @@ func (s *Server) backendOneBotAction(ctx context.Context, act obAction) obRespon
 func (s *Server) extraOneBotAction(ctx context.Context, act obAction) obResponse {
 	switch act.Action {
 	case "get_forward_msg":
-		var p map[string]json.RawMessage
-		_ = json.Unmarshal(act.Params, &p)
-		var id string
-		if v, ok := p["id"]; ok && json.Unmarshal(v, &id) != nil {
-			return obBad("id must be a string", act.Echo)
-		}
-		if id == "" {
-			if v, ok := p["message_id"]; ok {
-				if json.Unmarshal(v, &id) != nil {
-					var number uint64
-					if json.Unmarshal(v, &number) != nil || number == 0 {
-						return obBad("message_id must be a string or positive integer", act.Echo)
-					}
-					id = strconv.FormatUint(number, 10)
-				}
-				if n, err := strconv.ParseInt(id, 10, 32); err == nil {
-					s.ob.mu.Lock()
-					cached, exists := s.ob.cache[int32(n)]
-					s.ob.mu.Unlock()
-					if exists && time.Since(cached.Created) <= time.Hour {
-						cq, _ := cached.Data["raw_message"].(string)
-						for _, segment := range cqSegments(cq) {
-							if segment["type"] == "forward" {
-								id = segment["data"].(map[string]string)["id"]
-								break
-							}
-						}
-					}
-				}
-			}
-		}
-		if id == "" {
-			return obBad("id or message_id is required", act.Echo)
-		}
-		act.Params, _ = json.Marshal(map[string]string{"id": id})
-		return s.backendOneBotAction(ctx, act)
+		return s.forwardForAgent(ctx, act)
+	case "mark_msg_as_read":
+		return s.markOneBotMessageRead(ctx, act)
+	case "mark_group_msg_as_read":
+		return s.markOneBotConversationRead(ctx, act, true)
+	case "mark_private_msg_as_read":
+		return s.markOneBotConversationRead(ctx, act, false)
+	case "_mark_all_as_read":
+		return s.markAllOneBotRead(ctx, act)
+	case "get_group_msg_history", "get_friend_msg_history":
+		return s.oneBotHistoryAction(ctx, act)
+	case "set_essence_msg", "delete_essence_msg":
+		return s.oneBotEssence(ctx, act)
+	case "set_msg_emoji_like":
+		return s.oneBotEmojiLike(ctx, act)
+	case "send_forward_msg", "send_group_forward_msg", "send_private_forward_msg":
+		return s.oneBotSendForward(ctx, act)
+	case "forward_friend_single_msg", "forward_group_single_msg":
+		return s.oneBotForwardSingle(ctx, act)
+	case "set_group_kick_members":
+		return s.oneBotKickMembers(ctx, act)
 	case "clean_cache":
 		res := s.backendOneBotAction(ctx, act)
 		if res.Status == "ok" {
@@ -625,7 +634,7 @@ func (s *Server) extraOneBotAction(ctx context.Context, act obAction) obResponse
 		_, temporary := s.bot.(interface {
 			PrepareSendTarget(context.Context, protocol.SendTarget) (protocol.SendTarget, error)
 		})
-		return obOK(map[string]any{"supported": supported, "unavailable": unavailable, "transports": []string{"http", "http_post", "websocket", "reverse_websocket"}, "temporary_private": map[string]any{"supported": temporary, "source_group_parameter": "group_id", "implicit_reply": "only one unambiguous received temporary context", "recall": false}, "message_segments": []string{"text", "at", "face", "image", "record", "forward", "node", "xml", "json"}, "limitations": []string{"message cache: 1024 entries / one hour / current account only", "native sends preserve text/mentions/faces/up to 20 images; record must be a separate message", "temporary private sends require a source group and remain subject to QQ permissions; no C2C fallback", "audio conversion requires media tools; received media is account scoped and expires after one hour", "backend availability and QQ permissions are checked on each call"}}, act.Echo)
+		return obOK(map[string]any{"supported": supported, "unavailable": unavailable, "transports": []string{"http", "http_post", "websocket", "reverse_websocket"}, "temporary_private": map[string]any{"supported": temporary, "source_group_parameter": "group_id", "implicit_reply": "only one unambiguous received temporary context", "recall": false}, "message_segments": []string{"text", "reply", "at", "face", "image", "record", "forward", "node", "xml", "json"}, "limitations": []string{"message cache: 1024 entries / one hour / current account only", "native sends preserve quoted replies/text/mentions/faces/record/up to 20 images", "temporary private sends require a source group and remain subject to QQ permissions; no C2C fallback", "audio conversion requires media tools; received media is account scoped and expires after one hour", "group history needs a message_seq or a cached group message and fetches at most 28 messages; friend history is roam-by-time", "ocr needs an http(s) image URL QQ can fetch", "emoji like is group-only and needs a cached message", "private file URL needs file_id and file_hash", "trans_group_file posts an existing group file; it does not upload", "get_online_clients reports this session only", "_mark_all_as_read covers conversations still in the message cache, at most 50", "backend availability and QQ permissions are checked on each call"}}, act.Echo)
 	case ".handle_quick_operation":
 		var p struct {
 			Context   json.RawMessage `json:"context"`
@@ -641,6 +650,180 @@ func (s *Server) extraOneBotAction(ctx context.Context, act obAction) obResponse
 		return s.backendOneBotAction(ctx, act)
 	}
 }
+
+func (o *oneBotRuntime) latestCached(group, user uint32) (seq, timestamp uint32) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	for i := len(o.order) - 1; i >= 0; i-- {
+		m := o.cache[o.order[i]]
+		if time.Since(m.Created) > time.Hour {
+			continue
+		}
+		if group != 0 {
+			if m.Target.Group == group {
+				return m.Result.Sequence, m.Result.Timestamp
+			}
+			continue
+		}
+		if m.Target.Group == 0 && m.Target.Uin == user {
+			return m.Result.Sequence, m.Result.Timestamp
+		}
+	}
+	return 0, 0
+}
+
+func (s *Server) markOneBotMessageRead(ctx context.Context, act obAction) obResponse {
+	var p struct {
+		ID int32 `json:"message_id"`
+	}
+	if json.Unmarshal(act.Params, &p) != nil || p.ID == 0 {
+		return obBad("message_id required", act.Echo)
+	}
+	s.ob.mu.Lock()
+	m, ok := s.ob.cache[p.ID]
+	s.ob.mu.Unlock()
+	if !ok || time.Since(m.Created) > time.Hour {
+		return obFail("message not in this account's bounded cache", act.Echo)
+	}
+	params := map[string]any{"message_seq": m.Result.Sequence, "time": m.Result.Timestamp}
+	action := "mark_private_msg_as_read"
+	if m.Target.Group != 0 {
+		params["group_id"] = m.Target.Group
+		action = "mark_group_msg_as_read"
+	} else {
+		params["user_id"] = m.Target.Uin
+	}
+	raw, _ := json.Marshal(params)
+	return s.backendOneBotAction(ctx, obAction{Action: action, Params: raw, Echo: act.Echo})
+}
+
+func (s *Server) markOneBotConversationRead(ctx context.Context, act obAction, group bool) obResponse {
+	var p struct {
+		GroupID uint32 `json:"group_id"`
+		UserID  uint32 `json:"user_id"`
+		Seq     uint32 `json:"message_seq"`
+		Time    uint32 `json:"time"`
+	}
+	if json.Unmarshal(act.Params, &p) != nil {
+		return obBad("invalid parameters", act.Echo)
+	}
+	if p.Seq == 0 {
+		if group {
+			p.Seq, p.Time = s.ob.latestCached(p.GroupID, 0)
+		} else {
+			p.Seq, p.Time = s.ob.latestCached(0, p.UserID)
+		}
+	}
+	if p.Seq == 0 {
+		return obFail("no recent message for this conversation", act.Echo)
+	}
+	raw, _ := json.Marshal(map[string]any{
+		"group_id": p.GroupID, "user_id": p.UserID, "message_seq": p.Seq, "time": p.Time,
+	})
+	act.Params = raw
+	return s.backendOneBotAction(ctx, act)
+}
+
+func (s *Server) markAllOneBotRead(ctx context.Context, act obAction) obResponse {
+	type conv struct {
+		group      bool
+		id         uint32
+		seq, stamp uint32
+	}
+	seen := map[string]bool{}
+	jobs := []conv{}
+	s.ob.mu.Lock()
+	for i := len(s.ob.order) - 1; i >= 0 && len(jobs) < 50; i-- {
+		m := s.ob.cache[s.ob.order[i]]
+		if time.Since(m.Created) > time.Hour || m.Result.Sequence == 0 {
+			continue
+		}
+		key := fmt.Sprintf("u:%d", m.Target.Uin)
+		id := m.Target.Uin
+		if m.Target.Group != 0 {
+			key = fmt.Sprintf("g:%d", m.Target.Group)
+			id = m.Target.Group
+		}
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		jobs = append(jobs, conv{group: m.Target.Group != 0, id: id, seq: m.Result.Sequence, stamp: m.Result.Timestamp})
+	}
+	s.ob.mu.Unlock()
+	for _, j := range jobs {
+		action := "mark_private_msg_as_read"
+		params := map[string]any{"message_seq": j.seq, "time": j.stamp}
+		if j.group {
+			action = "mark_group_msg_as_read"
+			params["group_id"] = j.id
+		} else {
+			params["user_id"] = j.id
+		}
+		raw, _ := json.Marshal(params)
+		res := s.backendOneBotAction(ctx, obAction{Action: action, Params: raw, Echo: act.Echo})
+		if res.Status != "ok" {
+			return res
+		}
+	}
+	return obOK(true, act.Echo)
+}
+
+func (s *Server) oneBotHistoryAction(ctx context.Context, act obAction) obResponse {
+	var p struct {
+		GroupID uint32 `json:"group_id"`
+		UserID  uint32 `json:"user_id"`
+		Seq     uint32 `json:"message_seq"`
+		Time    uint32 `json:"time"`
+		Count   uint32 `json:"count"`
+	}
+	if json.Unmarshal(act.Params, &p) != nil {
+		return obBad("invalid parameters", act.Echo)
+	}
+	if act.Action == "get_group_msg_history" && p.Seq == 0 {
+		p.Seq, _ = s.ob.latestCached(p.GroupID, 0)
+	}
+	if act.Action == "get_friend_msg_history" && p.Time == 0 {
+		_, p.Time = s.ob.latestCached(0, p.UserID)
+	}
+	raw, _ := json.Marshal(map[string]any{
+		"group_id": p.GroupID, "user_id": p.UserID, "message_seq": p.Seq, "time": p.Time, "count": p.Count,
+	})
+	act.Params = raw
+	res := s.backendOneBotAction(ctx, act)
+	if res.Status != "ok" {
+		return res
+	}
+	messages, ok := res.Data.([]*protocol.IncomingMessage)
+	if !ok {
+		return res
+	}
+	return s.oneBotHistoryResponse(ctx, messages, act.Echo)
+}
+
+func (s *Server) oneBotHistoryResponse(ctx context.Context, messages []*protocol.IncomingMessage, echo json.RawMessage) obResponse {
+	self, err := s.bot.Self(ctx)
+	if err != nil {
+		return obFail(err.Error(), echo)
+	}
+	out := make([]map[string]any, 0, len(messages))
+	for _, m := range messages {
+		if m == nil {
+			continue
+		}
+		raw := s.ob.event(protocol.MessageEvent{SelfUin: self.Uin, Msg: m})
+		if raw == nil {
+			continue
+		}
+		var event map[string]any
+		if json.Unmarshal(raw, &event) != nil {
+			return obFail("invalid history message", echo)
+		}
+		out = append(out, cachedOneBotEvent(event))
+	}
+	return obOK(map[string]any{"messages": out}, echo)
+}
+
 func (s *Server) quickOperation(ctx context.Context, event, operation json.RawMessage) obResponse {
 	var e struct {
 		SelfID      uint32 `json:"self_id"`
@@ -765,7 +948,7 @@ func (s *Server) quickOperation(ctx context.Context, event, operation json.RawMe
 }
 
 func (s *Server) supportedOneBotActions() []string {
-	out := []string{"get_login_info", "get_group_list", "get_group_info", "get_status", "get_version_info", "get_msg", "can_send_image", "can_send_record", ".handle_quick_operation", "get_supported_actions", "get_onebot_capabilities"}
+	out := []string{"get_login_info", "get_group_list", "get_group_info", "get_status", "get_version_info", "get_msg", "_mark_all_as_read", "can_send_image", "can_send_record", ".handle_quick_operation", "get_supported_actions", "get_onebot_capabilities"}
 	if _, ok := s.bot.(messageSender); ok {
 		out = append(out, "send_msg", "send_group_msg", "send_private_msg")
 	}
@@ -775,11 +958,363 @@ func (s *Server) supportedOneBotActions() []string {
 		out = append(out, "delete_msg")
 	}
 	if _, ok := s.bot.(groupActions); ok {
-		out = append(out, "set_group_ban", "set_group_whole_ban", "set_group_kick", "set_group_admin", "set_group_card", "set_group_name", "set_group_leave", "set_group_special_title", "group_poke", "send_group_poke", "send_poke", "friend_poke")
+		out = append(out, "set_group_ban", "set_group_whole_ban", "set_group_kick", "set_group_kick_members", "set_group_admin", "set_group_card", "set_group_name", "set_group_leave", "set_group_special_title", "group_poke", "send_group_poke", "send_poke", "friend_poke")
 	}
 	if b, ok := s.bot.(interface{ SupportedOneBotActions() []string }); ok {
 		out = append(out, b.SupportedOneBotActions()...)
 	}
+	if _, ok := s.bot.(interface {
+		SetEssenceMessage(context.Context, uint32, uint32, uint32, bool) error
+	}); ok {
+		out = append(out, "set_essence_msg", "delete_essence_msg")
+	}
+	if _, ok := s.bot.(interface {
+		SetGroupReaction(context.Context, uint32, uint32, string, bool) error
+	}); ok {
+		out = append(out, "set_msg_emoji_like")
+	}
+	if _, ok := s.bot.(interface {
+		SendForwardMessage(context.Context, protocol.SendTarget, []protocol.ForwardNode) (protocol.SendResult, error)
+	}); ok {
+		out = append(out, "send_forward_msg", "send_group_forward_msg", "send_private_forward_msg", "forward_friend_single_msg", "forward_group_single_msg")
+	}
 	sort.Strings(out)
 	return out
+}
+
+func (s *Server) oneBotEmojiLike(ctx context.Context, act obAction) obResponse {
+	var p struct {
+		ID      int32           `json:"message_id"`
+		EmojiID json.RawMessage `json:"emoji_id"`
+		Set     *bool           `json:"set"`
+	}
+	if json.Unmarshal(act.Params, &p) != nil || p.ID == 0 {
+		return obBad("message_id required", act.Echo)
+	}
+	code := jsonEmojiID(p.EmojiID)
+	if code == "" || len(code) > 64 {
+		return obBad("emoji_id required", act.Echo)
+	}
+	s.ob.mu.Lock()
+	m, ok := s.ob.cache[p.ID]
+	s.ob.mu.Unlock()
+	if !ok || time.Since(m.Created) > time.Hour {
+		return obFail("message not in this account's bounded cache", act.Echo)
+	}
+	if m.Target.Group == 0 {
+		return obFail("emoji like is a group message action", act.Echo)
+	}
+	if m.Result.Sequence == 0 {
+		return obFail("emoji like requires sequence", act.Echo)
+	}
+	bot, ok := s.bot.(interface {
+		SetGroupReaction(context.Context, uint32, uint32, string, bool) error
+	})
+	if !ok {
+		return obUnsupported(act.Action, act.Echo)
+	}
+	add := p.Set == nil || *p.Set
+	if err := bot.SetGroupReaction(ctx, m.Target.Group, m.Result.Sequence, code, add); err != nil {
+		return obFail(err.Error(), act.Echo)
+	}
+	return obOK(nil, act.Echo)
+}
+
+func (s *Server) oneBotEssence(ctx context.Context, act obAction) obResponse {
+	var p struct {
+		ID int32 `json:"message_id"`
+	}
+	if json.Unmarshal(act.Params, &p) != nil || p.ID == 0 {
+		return obBad("message_id required", act.Echo)
+	}
+	s.ob.mu.Lock()
+	m, ok := s.ob.cache[p.ID]
+	s.ob.mu.Unlock()
+	if !ok || time.Since(m.Created) > time.Hour {
+		return obFail("message not in this account's bounded cache", act.Echo)
+	}
+	if m.Target.Group == 0 {
+		return obFail("essence is a group message action", act.Echo)
+	}
+	if m.Result.Sequence == 0 || m.Result.Random == 0 {
+		return obFail("essence requires sequence and random", act.Echo)
+	}
+	bot, ok := s.bot.(interface {
+		SetEssenceMessage(context.Context, uint32, uint32, uint32, bool) error
+	})
+	if !ok {
+		return obUnsupported(act.Action, act.Echo)
+	}
+	if err := bot.SetEssenceMessage(ctx, m.Target.Group, m.Result.Sequence, m.Result.Random, act.Action == "set_essence_msg"); err != nil {
+		return obFail(err.Error(), act.Echo)
+	}
+	return obOK(nil, act.Echo)
+}
+
+func (s *Server) oneBotForwardSingle(ctx context.Context, act obAction) obResponse {
+	var p struct {
+		GroupID   uint64 `json:"group_id"`
+		UserID    uint64 `json:"user_id"`
+		MessageID int32  `json:"message_id"`
+	}
+	if json.Unmarshal(act.Params, &p) != nil || p.MessageID == 0 {
+		return obBad("message_id required", act.Echo)
+	}
+	if act.Action == "forward_group_single_msg" && p.GroupID == 0 {
+		return obBad("group_id required", act.Echo)
+	}
+	if act.Action == "forward_friend_single_msg" && p.UserID == 0 {
+		return obBad("user_id required", act.Echo)
+	}
+	raw, _ := json.Marshal(map[string]any{
+		"group_id": p.GroupID, "user_id": p.UserID,
+		"messages": []any{map[string]any{"type": "node", "data": map[string]any{"id": p.MessageID}}},
+	})
+	return s.oneBotSendForward(ctx, obAction{Action: act.Action, Params: raw, Echo: act.Echo})
+}
+
+func (s *Server) oneBotKickMembers(ctx context.Context, act obAction) obResponse {
+	var p struct {
+		GroupID          uint64          `json:"group_id"`
+		UserIDs          json.RawMessage `json:"user_ids"`
+		UserID           json.RawMessage `json:"user_id"`
+		RejectAddRequest bool            `json:"reject_add_request"`
+	}
+	if json.Unmarshal(act.Params, &p) != nil || p.GroupID == 0 {
+		return obBad("group_id required", act.Echo)
+	}
+	raw := p.UserIDs
+	if len(raw) == 0 {
+		raw = p.UserID
+	}
+	ids, err := jsonUint32List(raw)
+	if err != nil || len(ids) == 0 {
+		return obBad("user_ids required", act.Echo)
+	}
+	if len(ids) > 50 {
+		return obBad("at most 50 members", act.Echo)
+	}
+	mgr, ok := s.bot.(groupActions)
+	if !ok {
+		return obUnsupported(act.Action, act.Echo)
+	}
+	for _, uin := range ids {
+		if uin == 0 {
+			return obBad("invalid user_id", act.Echo)
+		}
+		if err := mgr.KickMember(ctx, uint32(p.GroupID), uin, p.RejectAddRequest); err != nil {
+			return obFail(err.Error(), act.Echo)
+		}
+	}
+	return obOK(nil, act.Echo)
+}
+
+func jsonUint32List(raw json.RawMessage) ([]uint32, error) {
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return nil, fmt.Errorf("empty")
+	}
+	var numbers []uint64
+	if json.Unmarshal(raw, &numbers) != nil {
+		var one uint64
+		if json.Unmarshal(raw, &one) != nil || one == 0 || one > math.MaxUint32 {
+			return nil, fmt.Errorf("invalid")
+		}
+		return []uint32{uint32(one)}, nil
+	}
+	out := make([]uint32, 0, len(numbers))
+	for _, n := range numbers {
+		if n == 0 || n > math.MaxUint32 {
+			return nil, fmt.Errorf("invalid")
+		}
+		out = append(out, uint32(n))
+	}
+	return out, nil
+}
+
+func (s *Server) oneBotSendForward(ctx context.Context, act obAction) obResponse {
+	var p struct {
+		GroupID  uint64          `json:"group_id"`
+		UserID   uint64          `json:"user_id"`
+		Messages json.RawMessage `json:"messages"`
+	}
+	if json.Unmarshal(act.Params, &p) != nil {
+		return obBad("invalid forward parameters", act.Echo)
+	}
+	if act.Action == "send_group_forward_msg" && p.GroupID == 0 {
+		return obBad("group_id required", act.Echo)
+	}
+	if act.Action == "send_private_forward_msg" && p.UserID == 0 {
+		return obBad("user_id required", act.Echo)
+	}
+	if p.GroupID == 0 && p.UserID == 0 {
+		return obBad("group_id or user_id required", act.Echo)
+	}
+	sender, ok := s.bot.(interface {
+		SendForwardMessage(context.Context, protocol.SendTarget, []protocol.ForwardNode) (protocol.SendResult, error)
+	})
+	if !ok {
+		return obUnsupported(act.Action, act.Echo)
+	}
+	nodes, err := s.expandForwardNodes(p.Messages)
+	if err != nil {
+		return obBad(err.Error(), act.Echo)
+	}
+	target := protocol.SendTarget{Group: uint32(p.GroupID), Uin: uint32(p.UserID)}
+	target, err = s.prepareSendTarget(ctx, target)
+	if err != nil {
+		return obFail(err.Error(), act.Echo)
+	}
+	result, err := sender.SendForwardMessage(ctx, target, nodes)
+	if err != nil {
+		return obFail(err.Error(), act.Echo)
+	}
+	return obOK(map[string]any{"message_id": s.ob.rememberSend(ctx, target, result, "[聊天记录]")}, act.Echo)
+}
+
+func (s *Server) expandForwardNodes(raw json.RawMessage) ([]protocol.ForwardNode, error) {
+	var segs []map[string]any
+	if json.Unmarshal(raw, &segs) != nil || len(segs) == 0 {
+		return nil, fmt.Errorf("messages must be a non-empty node array")
+	}
+	if len(segs) > 200 {
+		return nil, fmt.Errorf("forward exceeds 200 nodes")
+	}
+	out := make([]protocol.ForwardNode, 0, len(segs))
+	for _, seg := range segs {
+		typ, _ := seg["type"].(string)
+		if typ != "node" {
+			return nil, fmt.Errorf("forward messages must be node segments")
+		}
+		data, _ := seg["data"].(map[string]any)
+		if data == nil {
+			return nil, fmt.Errorf("forward node is missing data")
+		}
+		if id := jsonInt32(data["id"]); id != 0 {
+			s.ob.mu.Lock()
+			m, ok := s.ob.cache[id]
+			s.ob.mu.Unlock()
+			if !ok || time.Since(m.Created) > time.Hour {
+				return nil, fmt.Errorf("forward node id %d is not in this account's cache", id)
+			}
+			n := protocol.ForwardNode{}
+			if m.Reply != nil {
+				n.SenderUin, n.SenderUid = m.Reply.SenderUin, m.Reply.SenderUid
+				n.Time, n.Sequence, n.Elements = m.Reply.Timestamp, m.Reply.Sequence, m.Reply.Elements
+			}
+			if sender, _ := m.Data["sender"].(map[string]any); sender != nil {
+				if nick, _ := sender["nickname"].(string); nick != "" {
+					n.SenderName = nick
+				}
+				if n.SenderUin == 0 {
+					n.SenderUin = jsonU32(sender["user_id"])
+				}
+			}
+			if n.SenderUin == 0 {
+				n.SenderUin = jsonU32(m.Data["user_id"])
+			}
+			if len(n.Elements) == 0 {
+				if cq, _ := m.Data["raw_message"].(string); cq != "" {
+					elems, err := cqToForwardElems(cq)
+					if err != nil {
+						return nil, err
+					}
+					n.Elements = elems
+				} else {
+					n.Elements = [][]byte{protocol.TextElem("")}
+				}
+			}
+			out = append(out, n)
+			continue
+		}
+		content, _ := json.Marshal(data["content"])
+		cq, err := validatedOBMessage(content, false, true)
+		if err != nil {
+			return nil, err
+		}
+		elems, err := cqToForwardElems(cq)
+		if err != nil {
+			return nil, err
+		}
+		uin := jsonU32(data["user_id"])
+		if uin == 0 {
+			uin = jsonU32(data["uin"])
+		}
+		if uin == 0 {
+			return nil, fmt.Errorf("forward node needs user_id or id")
+		}
+		nick, _ := data["nickname"].(string)
+		out = append(out, protocol.ForwardNode{
+			SenderUin: uin, SenderName: nick, Time: jsonU32(data["time"]), Elements: elems,
+		})
+	}
+	return out, nil
+}
+
+func cqToForwardElems(cq string) ([][]byte, error) {
+	var elems [][]byte
+	for _, seg := range cqSegments(cq) {
+		typ := seg["type"].(string)
+		d := seg["data"].(map[string]string)
+		switch typ {
+		case "text":
+			if d["text"] != "" {
+				elems = append(elems, protocol.TextElem(d["text"]))
+			}
+		case "at":
+			at := protocol.SendAt{}
+			if d["qq"] != "all" {
+				v, err := strconv.ParseUint(d["qq"], 10, 32)
+				if err != nil {
+					return nil, fmt.Errorf("invalid mention")
+				}
+				at.Uin = uint32(v)
+			}
+			elems = append(elems, protocol.AtElem(at))
+		case "face":
+			v, err := strconv.ParseUint(d["id"], 10, 32)
+			if err != nil {
+				return nil, fmt.Errorf("invalid face")
+			}
+			elems = append(elems, protocol.Marshal(protocol.BytesField(2, protocol.Marshal(protocol.VarintField(1, v)))))
+		case "image", "record", "video", "file", "reply":
+			return nil, fmt.Errorf("forward nodes only support text, at and face")
+		default:
+			return nil, fmt.Errorf("unsupported forward segment %s", typ)
+		}
+	}
+	if len(elems) == 0 {
+		elems = [][]byte{protocol.TextElem("")}
+	}
+	return elems, nil
+}
+
+func jsonU32(v any) uint32 {
+	switch t := v.(type) {
+	case float64:
+		if t <= 0 || t > float64(^uint32(0)) {
+			return 0
+		}
+		return uint32(t)
+	case string:
+		n, err := strconv.ParseUint(t, 10, 32)
+		if err != nil {
+			return 0
+		}
+		return uint32(n)
+	case json.Number:
+		n, err := t.Int64()
+		if err != nil || n <= 0 || n > int64(^uint32(0)) {
+			return 0
+		}
+		return uint32(n)
+	}
+	return 0
+}
+
+func jsonInt32(v any) int32 {
+	n := jsonU32(v)
+	if n > uint32(^uint32(0)>>1) {
+		return 0
+	}
+	return int32(n)
 }

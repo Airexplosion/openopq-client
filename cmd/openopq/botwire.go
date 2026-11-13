@@ -173,6 +173,7 @@ func buildBotWithDevice(loaded *config.Config, logger *slog.Logger, guid []byte,
 		signer.SetStatePath(filepath.Join(stateDirectories[0], hex.EncodeToString(guid)+"-"+hex.EncodeToString(endpointHash[:8])+".enc"))
 	}
 	return client.New(client.BotOptions{
+		MediaCacheMiB:  loaded.MediaCacheMiB,
 		Logger:         logger,
 		Reconnect:      client.ReconnectOptions{Disabled: loaded.AutoReconnect != nil && !*loaded.AutoReconnect},
 		DisableO3Relay: os.Getenv("OPENOPQ_RESEARCH_NO_O3") == "1",

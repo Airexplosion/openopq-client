@@ -104,7 +104,7 @@ func NormalizeOneBotConfig(c OneBotConfig) (OneBotConfig, error) {
 	return c, nil
 }
 
-var oneBotActions = strings.Fields(`send_private_msg send_group_msg send_msg delete_msg get_msg get_forward_msg get_group_system_msg send_like set_group_kick set_group_ban set_group_anonymous_ban set_group_whole_ban set_group_admin set_group_anonymous set_group_card set_group_name set_group_leave set_group_special_title set_friend_add_request set_group_add_request get_login_info get_stranger_info get_friend_list get_group_info get_group_list get_group_member_info get_group_member_list get_group_honor_info get_cookies get_csrf_token get_credentials get_record get_image can_send_image can_send_record get_status get_version_info set_restart clean_cache .handle_quick_operation group_poke send_group_poke send_poke friend_poke get_supported_actions get_onebot_capabilities`)
+var oneBotActions = strings.Fields(`send_private_msg send_group_msg send_msg delete_msg get_msg get_forward_msg send_forward_msg send_group_forward_msg send_private_forward_msg forward_friend_single_msg forward_group_single_msg get_group_system_msg get_group_ignore_add_request get_group_ignored_notices send_like set_group_kick set_group_kick_members set_group_ban set_group_anonymous_ban set_group_whole_ban set_group_admin set_group_anonymous set_group_card set_group_name set_group_leave set_group_special_title set_friend_add_request set_group_add_request get_login_info get_stranger_info get_friend_list get_friends_with_category get_group_info get_group_info_ex get_group_detail_info get_group_list get_group_member_info get_group_member_list get_group_honor_info get_group_shut_list get_cookies get_csrf_token get_credentials get_clientkey get_record get_image get_video get_file can_send_image can_send_record get_status get_version_info set_restart clean_cache .handle_quick_operation group_poke send_group_poke send_poke friend_poke set_friend_remark set_group_remark delete_friend mark_msg_as_read mark_group_msg_as_read mark_private_msg_as_read get_group_msg_history get_friend_msg_history set_essence_msg delete_essence_msg check_url_safely get_group_at_all_remain send_group_sign set_group_sign get_rkey nc_get_rkey ocr_image .ocr_image get_group_root_files get_group_files_by_folder get_group_file_url get_group_file_system_info delete_group_file create_group_file_folder delete_group_folder move_group_file rename_group_file set_group_file_folder_name rename_group_file_folder get_private_file_url set_msg_emoji_like download_file trans_group_file nc_get_packet_status get_online_clients _mark_all_as_read get_supported_actions get_onebot_capabilities`)
 
 func actionBase(a string) string {
 	for _, suffix := range []string{"_async", "_rate_limited"} {
@@ -143,8 +143,8 @@ func normalizeOBParams(raw json.RawMessage, action string) (json.RawMessage, err
 	if err := json.Unmarshal(raw, &p); err != nil || p == nil {
 		return nil, fmt.Errorf("params must be an object")
 	}
-	numbers := strings.Fields("user_id group_id message_id duration times delay")
-	bools := strings.Fields("auto_escape enable reject_add_request is_dismiss approve no_cache at_sender auto_escape anonymous")
+	numbers := strings.Fields("user_id group_id message_id message_seq duration times delay count time")
+	bools := strings.Fields("auto_escape enable reject_add_request is_dismiss approve no_cache at_sender auto_escape anonymous block")
 	for _, k := range append(numbers, bools...) {
 		// Forward resources are opaque strings; message_id is an alias for id
 		// on this action, not necessarily a numeric cached message ID.

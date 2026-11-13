@@ -131,6 +131,35 @@ func (b *Bot) groupRequests(ctx context.Context) ([]pendingRequest, error) {
 	}
 	return out, nil
 }
+
+func (b *Bot) oneBotGroupRequests(ctx context.Context, ignoredOnly bool) (any, error) {
+	r, e := b.groupRequests(ctx)
+	if e != nil {
+		return nil, e
+	}
+	invited, join := []map[string]any{}, []map[string]any{}
+	for _, p := range r {
+		if ignoredOnly && !p.Filtered {
+			continue
+		}
+		uin, e := b.resolveRequestUID(ctx, p.UID)
+		if e != nil {
+			return nil, e
+		}
+		m := map[string]any{"request_id": p.Sequence, "group_id": p.Group, "user_id": uin, "comment": p.Comment, "flag": p.Flag, "sub_type": p.SubType, "checked": false, "actor": 0}
+		if p.SubType == "invite" {
+			invited = append(invited, m)
+		} else {
+			join = append(join, m)
+		}
+	}
+	out := map[string]any{"invited_requests": invited, "join_requests": join}
+	if ignoredOnly {
+		out["InvitedRequest"] = invited
+	}
+	return out, nil
+}
+
 func (b *Bot) prepareRequest(ctx context.Context, n *protocol.Notice) error {
 	if n.Kind == protocol.NoticeGroupRequest {
 		requests, e := b.groupRequests(ctx)
@@ -163,24 +192,10 @@ func (b *Bot) prepareRequest(ctx context.Context, n *protocol.Notice) error {
 }
 func (b *Bot) requestAction(ctx context.Context, action string, raw json.RawMessage) (any, error) {
 	if action == "get_group_system_msg" {
-		r, e := b.groupRequests(ctx)
-		if e != nil {
-			return nil, e
-		}
-		invited, join := []map[string]any{}, []map[string]any{}
-		for _, p := range r {
-			uin, e := b.resolveRequestUID(ctx, p.UID)
-			if e != nil {
-				return nil, e
-			}
-			m := map[string]any{"request_id": p.Sequence, "group_id": p.Group, "user_id": uin, "comment": p.Comment, "flag": p.Flag, "sub_type": p.SubType, "checked": false, "actor": 0}
-			if p.SubType == "invite" {
-				invited = append(invited, m)
-			} else {
-				join = append(join, m)
-			}
-		}
-		return map[string]any{"invited_requests": invited, "join_requests": join}, nil
+		return b.oneBotGroupRequests(ctx, false)
+	}
+	if action == "get_group_ignore_add_request" || action == "get_group_ignored_notices" {
+		return b.oneBotGroupRequests(ctx, true)
 	}
 	var p struct {
 		Flag    string `json:"flag"`

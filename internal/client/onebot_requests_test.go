@@ -112,3 +112,49 @@ func TestUncertainApprovalNotRetried(t *testing.T) {
 		t.Fatal(calls)
 	}
 }
+
+func TestIgnoredGroupRequestsAreFilteredSubset(t *testing.T) {
+	openReq := protocol.Marshal(protocol.VarintField(1, 11), protocol.VarintField(2, 22), protocol.VarintField(3, 1), protocol.BytesField(4, protocol.Marshal(protocol.VarintField(1, 90001))), protocol.BytesField(5, protocol.Marshal(protocol.StringField(1, "u_open"))), protocol.StringField(10, "open join"))
+	ignoredReq := protocol.Marshal(protocol.VarintField(1, 22), protocol.VarintField(2, 22), protocol.VarintField(3, 1), protocol.BytesField(4, protocol.Marshal(protocol.VarintField(1, 90001))), protocol.BytesField(5, protocol.Marshal(protocol.StringField(1, "u_ignored"))), protocol.StringField(10, "ignored join"))
+	b := NewOneBotQueryBackend(obQueryExchange(func(_ context.Context, cmd string, _ []byte) ([]byte, error) {
+		switch cmd {
+		case protocol.OidbCommand(0x10c0, 1):
+			return obFixtureReply(cmd, protocol.Marshal(protocol.BytesField(1, openReq))), nil
+		case protocol.OidbCommand(0x10c0, 2):
+			return obFixtureReply(cmd, protocol.Marshal(protocol.BytesField(1, ignoredReq))), nil
+		default:
+			t.Fatal(cmd)
+			return nil, nil
+		}
+	}))
+	b.remember(111, "u_open", "")
+	b.remember(222, "u_ignored", "")
+	all, err := b.OneBotAction(context.Background(), "get_group_system_msg", json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	joins := all.(map[string]any)["join_requests"].([]map[string]any)
+	if len(joins) != 2 {
+		t.Fatal(joins)
+	}
+	ignored, err := b.OneBotAction(context.Background(), "get_group_ignore_add_request", json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := ignored.(map[string]any)
+	join := got["join_requests"].([]map[string]any)
+	if len(join) != 1 || join[0]["user_id"] != uint32(222) || join[0]["comment"] != "ignored join" {
+		t.Fatal(got)
+	}
+	alias := got["InvitedRequest"].([]map[string]any)
+	if len(alias) != 0 {
+		t.Fatal(alias)
+	}
+	notices, err := b.OneBotAction(context.Background(), "get_group_ignored_notices", json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if notices.(map[string]any)["join_requests"].([]map[string]any)[0]["user_id"] != uint32(222) {
+		t.Fatal(notices)
+	}
+}

@@ -28,6 +28,8 @@ type Dialer func(ctx context.Context) (Connection, error)
 
 // BotOptions are what a bot needs to start.
 type BotOptions struct {
+	// MediaCacheMiB limits each account's disk cache; zero uses 256 MiB.
+	MediaCacheMiB int64
 	LoginStore    *loginstate.Store
 	LoginIdentity string
 	Reconnect     ReconnectOptions
@@ -753,8 +755,8 @@ func (b *Bot) o3Probe(ctx context.Context, exchange Exchange, manifest string) {
 // Observing a particular command is a queue milestone, not proof of login;
 // online status still requires an accepted Register response.
 //
-// O3 uses the configured managed signer, or an explicitly supplied diagnostic endpoint.
-// No local signer is started or selected automatically.
+// The signer base URL is OPENOPQ_O3_SIGNER (default http://127.0.0.1:18094, the tunnel to
+// the in-process engine). It is a diagnostic/bring-up path and never fails the session.
 func signerSession(signer Signer) (string, string) {
 	if value, ok := signer.(interface{ O3Session() (string, string) }); ok {
 		return value.O3Session()
@@ -821,7 +823,7 @@ func (b *Bot) o3DelegateWithTrigger(ctx context.Context, exchange Exchange, budg
 		base = managedBase
 	}
 	if base == "" {
-		return // No implicit signing service in the client-only distribution.
+		base = "http://127.0.0.1:18094"
 	}
 	client := &http.Client{Timeout: 12 * time.Second}
 	doRequest := func(req *http.Request) (*http.Response, error) {

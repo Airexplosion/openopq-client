@@ -210,28 +210,27 @@ func (b *Bot) UploadAndSendImage(ctx context.Context, target protocol.SendTarget
 	return b.sendElements(ctx, target, elems)
 }
 
-// UploadAndSendVoice uploads a voice clip (SILK/AMR-encoded) and sends it. duration is seconds.
-func (b *Bot) UploadAndSendVoice(ctx context.Context, target protocol.SendTarget, data []byte, duration uint32) (protocol.SendResult, error) {
+func (b *Bot) prepareVoice(ctx context.Context, target protocol.SendTarget, data []byte, duration uint32) ([][]byte, error) {
 	if len(data) == 0 {
-		return protocol.SendResult{}, fmt.Errorf("client: empty voice")
+		return nil, fmt.Errorf("client: empty voice")
 	}
 	var err error
 	target, err = b.PrepareSendTarget(ctx, target)
 	if err != nil {
-		return protocol.SendResult{}, err
+		return nil, err
 	}
 	isGroup := target.IsGroup()
 	targetUID := target.Uid
 	if !isGroup && targetUID == "" && b.uidFor(target.Uin) == "" {
 		if _, e := b.oneBotFriends(ctx); e != nil {
-			return protocol.SendResult{}, e
+			return nil, e
 		}
 	}
 	if !isGroup && targetUID == "" {
 		if uid := b.uidFor(target.Uin); uid != "" {
 			targetUID = uid
 		} else {
-			return protocol.SendResult{}, fmt.Errorf("client: no uid known for uin %d", target.Uin)
+			return nil, fmt.Errorf("client: no uid known for uin %d", target.Uin)
 		}
 	}
 	md5sum := md5.Sum(data)
@@ -240,21 +239,21 @@ func (b *Bot) UploadAndSendVoice(ctx context.Context, target protocol.SendTarget
 
 	exchange, err := b.service()
 	if err != nil {
-		return protocol.SendResult{}, err
+		return nil, err
 	}
 	reqBody, command := protocol.BuildVoiceUploadReq(target.Group, groupUID(isGroup, targetUID), meta, target.TempGroup)
 	answer, err := exchange.Exchange(ctx, command, reqBody)
 	if err != nil {
-		return protocol.SendResult{}, fmt.Errorf("voice upload request: %w", err)
+		return nil, fmt.Errorf("voice upload request: %w", err)
 	}
 	up, err := protocol.ParseImageUploadResp(answer)
 	if err != nil {
-		return protocol.SendResult{}, err
+		return nil, err
 	}
 	if up.UKey != "" {
 		session, err := b.ensureHighway(ctx)
 		if err != nil {
-			return protocol.SendResult{}, err
+			return nil, err
 		}
 		if len(up.Servers) == 0 {
 			up.Servers = session.Servers
@@ -265,21 +264,19 @@ func (b *Bot) UploadAndSendVoice(ctx context.Context, target protocol.SendTarget
 			commandID = 1007 // private voice
 		}
 		if err := b.highwayUpload(ctx, session, commandID, data, md5sum[:], ext); err != nil {
-			return protocol.SendResult{}, err
+			return nil, err
 		}
 	}
-	elems := [][]byte{protocol.VoiceCommonElem(up.MsgInfo)}
-	clientSeq := b.nextMessageSeq()
-	random := randU32()
-	target.Uid = targetUID
-	body := protocol.BuildMediaMessage(target, elems, clientSeq, random, uint32(time.Now().Unix()))
-	sendAnswer, err := exchange.Exchange(ctx, protocol.SendMessageCommand, body)
+	return [][]byte{protocol.VoiceCommonElem(up.MsgInfo)}, nil
+}
+
+// UploadAndSendVoice uploads a voice clip (SILK/AMR-encoded) and sends it. duration is seconds.
+func (b *Bot) UploadAndSendVoice(ctx context.Context, target protocol.SendTarget, data []byte, duration uint32) (protocol.SendResult, error) {
+	elems, err := b.prepareVoice(ctx, target, data, duration)
 	if err != nil {
 		return protocol.SendResult{}, err
 	}
-	result, err := protocol.ParseSendResponse(sendAnswer)
-	result.ClientSequence, result.Random = clientSeq, random
-	return result, err
+	return b.sendElements(ctx, target, elems)
 }
 
 // groupUID returns the targetUID for a c2c send, or empty for a group (which BuildImageUploadReq

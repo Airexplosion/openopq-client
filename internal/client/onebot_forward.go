@@ -39,3 +39,51 @@ func (b *Bot) forwardAction(ctx context.Context, raw json.RawMessage) (any, erro
 	// message format. Native transport metadata never goes onto the wire.
 	return messages, nil
 }
+
+// SendForwardMessage uploads a multi-message payload and sends the resid as a light-app.
+func (b *Bot) SendForwardMessage(ctx context.Context, target protocol.SendTarget, nodes []protocol.ForwardNode) (protocol.SendResult, error) {
+	if len(nodes) == 0 || len(nodes) > 200 {
+		return protocol.SendResult{}, fmt.Errorf("forward needs 1..200 nodes")
+	}
+	var err error
+	target, err = b.PrepareSendTarget(ctx, target)
+	if err != nil {
+		return protocol.SendResult{}, err
+	}
+	if !target.IsGroup() && target.Uid == "" {
+		target.Uid = b.uidFor(target.Uin)
+		if target.Uid == "" {
+			if _, e := b.oneBotFriends(ctx); e != nil {
+				return protocol.SendResult{}, e
+			}
+			target.Uid = b.uidFor(target.Uin)
+		}
+		if target.Uid == "" {
+			return protocol.SendResult{}, fmt.Errorf("private peer UID is unknown")
+		}
+	}
+	ex, err := b.service()
+	if err != nil {
+		return protocol.SendResult{}, err
+	}
+	selfUID := b.Credentials().Uid
+	if selfUID == "" {
+		self, e := b.Self(ctx)
+		if e != nil {
+			return protocol.SendResult{}, e
+		}
+		selfUID = self.UID
+	}
+	if selfUID == "" {
+		return protocol.SendResult{}, fmt.Errorf("account UID is unknown")
+	}
+	answer, err := ex.Exchange(ctx, protocol.SendForwardCommand, protocol.BuildSendForward(selfUID, target.Group, nodes))
+	if err != nil {
+		return protocol.SendResult{}, err
+	}
+	resid, err := protocol.ParseSendForward(answer)
+	if err != nil {
+		return protocol.SendResult{}, err
+	}
+	return b.sendElements(ctx, target, [][]byte{protocol.ForwardLightAppElem(resid, nodes)})
+}

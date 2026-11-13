@@ -116,22 +116,32 @@ func (b *Bot) SendRichMessage(ctx context.Context, target protocol.SendTarget, s
 		return protocol.SendResult{}, fmt.Errorf("message needs 1..100 segments")
 	}
 	var total int
-	images := 0
+	images, records := 0, 0
 	for _, s := range segments {
 		switch s.Type {
 		case "text", "at", "face":
+		case "reply":
+			if s.Reply == nil || s.Reply.Sequence == 0 || s.Reply.SenderUin == 0 || s.Reply.Timestamp == 0 {
+				return protocol.SendResult{}, fmt.Errorf("reply metadata unavailable")
+			}
 		case "image":
 			images++
 			total += len(s.Bytes)
 			if len(s.Bytes) == 0 || len(s.Bytes) > 30<<20 {
 				return protocol.SendResult{}, fmt.Errorf("invalid image size")
 			}
+		case "record":
+			records++
+			total += len(s.Bytes)
+			if len(s.Bytes) == 0 || len(s.Bytes) > 30<<20 {
+				return protocol.SendResult{}, fmt.Errorf("invalid voice size")
+			}
 		default:
 			return protocol.SendResult{}, fmt.Errorf("unsupported rich segment %s", s.Type)
 		}
 	}
-	if images > 20 || total > 60<<20 {
-		return protocol.SendResult{}, fmt.Errorf("message exceeds image limits")
+	if images > 20 || records > 1 || total > 60<<20 {
+		return protocol.SendResult{}, fmt.Errorf("message exceeds media limits")
 	}
 	var err error
 	target, err = b.PrepareSendTarget(ctx, target)
@@ -171,12 +181,20 @@ func (b *Bot) SendRichMessage(ctx context.Context, target protocol.SendTarget, s
 			elems = append(elems, protocol.AtElem(at))
 		case "face":
 			elems = append(elems, protocol.Marshal(protocol.BytesField(2, protocol.Marshal(protocol.VarintField(1, uint64(s.Face))))))
+		case "reply":
+			elems = append(elems, protocol.ReplyElem(*s.Reply))
 		case "image":
 			image, e := b.prepareImage(ctx, target, s.Bytes)
 			if e != nil {
 				return protocol.SendResult{}, e
 			}
 			elems = append(elems, image...)
+		case "record":
+			voice, e := b.prepareVoice(ctx, target, s.Bytes, s.Duration)
+			if e != nil {
+				return protocol.SendResult{}, e
+			}
+			elems = append(elems, voice...)
 		}
 	}
 	return b.sendElements(ctx, target, elems)
