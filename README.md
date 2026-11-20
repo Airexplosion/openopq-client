@@ -1,65 +1,67 @@
 # OpenOPQ Client
 
-独立的 OpenOPQ 客户端，提供本地网页控制台、二维码登录、OPQ API、OneBot 11 / 12 和多账号会话管理。
+用自己的 QQ 号连接机器人。启动 OpenOPQ Client，在本机网页上扫码登录，就可以让支持 **OneBot 11、OneBot 12 或 OPQ API** 的应用通过这个账号收发消息。一个控制台可以管理多个账号。
 
-**必须自行提供兼容的签名服务。** 本仓库不包含 signer 服务端、QQ SDK、Darling、签名镜像或签名服务地址，也不会下载、启动或自动选择签名器。`internal/sign` 是调用外部 HTTP 服务的客户端代码，不是签名算法。
+[下载客户端](https://github.com/Airexplosion/openopq-client/releases/latest) · [查看配置模板](./Config.example.json) · [反馈问题](https://github.com/Airexplosion/openopq-client/issues)
 
-## 快速开始
+## 第一次登录
 
-从 Releases 下载对应系统的客户端包并解压，将 `Config.example.json` 复制为 `Config.json`，填写 `FakeSignApi`：
+开始前，你需要一个**兼容的 QQ 签名服务地址**。客户端负责登录和收发消息，签名服务需要单独准备。配置模板默认使用 `QQNT-v7.0.2-53644`，请和服务提供方确认版本一致。
 
-```json
-{
-  "FakeSignApi": "https://signer.example.com:443/service/sign",
-  "Version": "QQNT-v7.0.2-53644",
-  "Protocol": "both",
-  "Accounts": []
-}
-```
+1. 下载适合自己系统的压缩包，解压到一个以后还会用的目录。
+2. 把目录里的 `Config.example.json` 复制一份，命名为 `Config.json`。打开副本，在 `FakeSignApi` 的空引号中填入服务方给你的完整地址，保留路径和末尾的 `/sign`。
+3. 在解压目录打开终端，运行对应系统的命令。
 
-地址必须完整包含协议、主机、需要时的端口及 `/sign` 路径。示例域名不能直接使用；地址留空时程序会提示配置并退出。QQ 身份版本必须与签名服务匹配。
-
-若签名服务使用 HTTPS Basic 鉴权，可以填写：
-
-```text
-https://用户名:密钥@signer.example.com:443/service/sign
-```
-
-用户名与密钥中的特殊字符需要 URL 编码；URL-safe 随机密钥可直接填写。这里支持的是 HTTP Basic，不能当作任意 Bearer/API Key 服务的通用协议。公网携带密钥时必须使用 HTTPS；仅本机回环地址允许 HTTP。不要分享或提交自己的 `Config.json`。
-
-Windows：
+**Windows · PowerShell**
 
 ```powershell
 .\openopq.exe --config Config.json --port 8087
 ```
 
-Linux / macOS：
+**macOS / Linux**
 
 ```sh
 chmod +x ./openopq
 ./openopq --config Config.json --port 8087
 ```
 
-浏览器打开 `http://127.0.0.1:8087/console/`，按控制台提示添加账号并扫码。首次控制台认证信息按启动输出或 `data/console-key.txt` 获取。保留 `data/` 中的设备档案、加密登录状态及控制台配置；不要将它公开。
+打开 [本机控制台](http://127.0.0.1:8087/console/)，添加 QQ 号，用手机 QQ 扫码。控制台如果要求输入密钥，可以按启动日志给出的路径查看，默认是 `data/console-key.txt`。
 
-无网页运行：
+## 接入机器人
+
+在控制台里设置机器人使用的协议、鉴权和事件转发。配置模板里的 `Protocol` 默认是 `both`。
+
+| 你的机器人使用 | `Protocol` 填写 |
+| --- | --- |
+| OPQ API 或 OneBot 11 | `both`（模板默认，同时开启两者） |
+| 只用 OneBot 12 | `onebot12` |
+| 三种接口都需要 | `all` |
+
+## 换机器或升级时，要留哪些文件？
+
+保留自己的 `Config.json` 和整个 `data/` 目录。前者记录签名服务地址和连接配置，后者保存设备身份、登录状态和控制台设置。换机器前先停止旧实例，再把这些文件一起迁移。向别人反馈问题时，请隐去配置中的密钥，也请勿上传账号数据。
+
+<details>
+<summary>签名服务地址带用户名和密码，怎么填？</summary>
+
+如果服务方使用 HTTP Basic 鉴权，格式是 `https://用户名:密钥@主机/路径/sign`。用户名或密钥中的特殊字符需要做 URL 编码。远程服务请使用 HTTPS，本机回环地址可使用 HTTP。服务方给的是带路径前缀的地址时，保留完整路径。
+
+</details>
+
+<details>
+<summary>在服务器上运行，不打开网页</summary>
+
+把下面的 `123456789` 换成自己的 QQ 号，按终端提示完成登录。
 
 ```sh
-./openopq --config Config.json --headless --account 你的QQ号 --login --data-dir data
+./openopq --config Config.json --headless --account 123456789 --login --data-dir data
 ```
 
-默认 `both` 提供 OPQ 与 OneBot 11；`all` 另开启 OneBot 12。控制台中可设置协议接入、鉴权和事件转发。多账号数量和稳定性取决于所接签名服务，客户端不会解除服务端限制。
+</details>
 
-## 最新源码更新
+## 从源码构建
 
-- 同步群文件列表、下载地址和 OneBot 管理接口；下载地址优先使用 QQ 返回的 TLS 域名，并传递文件的 `busid`。
-- 群文件统计错误和分页超限会明确报错，避免把失败当成空列表或完整结果。
-- 同步签名会话丢失后的重连处理、媒体下载目标校验和缓存限额。`MediaCacheMiB` 可配置每个账号的磁盘媒体缓存，省略或为 0 时默认 256 MiB。
-- 保留独立客户端的外部签名服务地址校验、带路径前缀的健康检查与敏感错误隐藏。以上为源码更新，已有 Release 附件不会自动替换。
-
-## 构建与验证
-
-需要 Go 1.27 或更新版本：
+安装 Go 1.27 或更新版本，在仓库根目录运行：
 
 ```sh
 go test ./...
@@ -67,10 +69,6 @@ go vet ./...
 go build -trimpath -o openopq ./cmd/openopq
 ```
 
-`python tools/package.py` 构建 Windows amd64、Linux amd64/arm64、macOS amd64/arm64 客户端包，并生成 SHA-256 校验文件。只打包客户端、空配置模板与说明文件。
+维护者可用 `python tools/package.py` 生成 Windows、Linux 和 macOS 的客户端压缩包及 SHA-256 校验文件。源码更新和可下载版本分别见[提交记录](https://github.com/Airexplosion/openopq-client/commits/main/)和[发行记录](https://github.com/Airexplosion/openopq-client/releases)。
 
-## 范围
-
-此仓库由客户端源码独立整理，以全新的 Git 历史发布。测试使用合成输入；私人抓包、账号数据、签名器工程和原部署配置不包含在这里。自动化测试通过不等于某个外部签名服务已通过真实扫码或长期多账号运行验证。
-
-项目不是腾讯官方客户端。媒体转换功能按运行环境需要另行安装 FFmpeg 等外部工具。本仓库目前未附加开源许可授权。
+OpenOPQ Client 是第三方客户端，与腾讯官方无隶属关系。仓库尚未声明开源许可证。
