@@ -7,13 +7,15 @@ site_dir: build/pages
 theme:
   name: material
   language: zh
+  logo: assets/opq.svg
+  favicon: assets/opq.svg
   font: false
   palette:
     scheme: slate
     primary: black
     accent: deep purple
   features:
-    - navigation.sections
+    - navigation.top
     - content.code.copy
 plugins:
   - search:
@@ -21,11 +23,39 @@ plugins:
 markdown_extensions:
   - tables
   - fenced_code
+extra_css:
+  - assets/manual.css
 nav:
-  - 首页: index.md
-  - 开始使用: start.md
-  - API 参考:
-      - OneBot 11: api/v11.md
-      - OneBot 12: api/v12.md
+  - 官网首页: index.md
+  - 快速开始:
+      - 手册概览: overview.md
+      - 安装与校验: install.md
+      - 扫码与首次调用: start.md
+      - 无界面运行与升级: ops/run.md
+      - 备份与数据迁移: ops/migrate.md
+      - 常见问题: ops/faq.md
+      - 故障排查: ops/troubleshooting.md
+  - 配置:
+      - 基础配置与签名服务: config/base.md
+      - 协议与事件传输: config/transports.md
+      - 命令行参数: config/cli.md
+  - 管理控制台:
+      - 面板导览: console/overview.md
+      - 账号与会话: console/accounts.md
+      - 密钥与访问令牌: console/security.md
+      - API 调试、日志与诊断: console/diagnostics.md
+  - 接口参考:
+      - OneBot 11 调用格式: api/v11.md
+      - OneBot 11 动作索引: api/actions.md
+      - 消息段、引用与转发: api/messages.md
+      - 事件与动作响应: api/events.md
+      - 群成员与群文件: api/groups.md
+      - OneBot 12 调用格式: api/v12.md
+      - OneBot 12 文件与分片: api/files12.md
       - OPQ 原生接口: api/opq.md
-  - 实战示例: examples.md
+  - 开发与示例:
+      - 运行 Python 示例: examples.md
+      - 架构与接入开发: dev/architecture.md
+      - 源码构建与贡献: dev/build.md
+  - 项目信息:
+      - 版本与许可: project/releases.md
