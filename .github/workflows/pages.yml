@@ -30,10 +30,11 @@ jobs:
       - run: python website/build.py
       - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa
         with:
+          name: pages-${{ github.run_attempt }}
           path: build/pages
       - uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b
-        with:
-          enablement: true
       - name: Publish GitHub Pages
         id: deploy
         uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e
+        with:
+          artifact_name: pages-${{ github.run_attempt }}
