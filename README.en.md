@@ -6,7 +6,7 @@
   <a href="https://github.com/Airexplosion/openopq-client/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/Airexplosion/openopq-client?style=flat-square&amp;color=7965cc&amp;logo=github"></a>
   <a href="https://github.com/Airexplosion/openopq-client/actions/workflows/ci.yml"><img alt="Client CI" src="https://github.com/Airexplosion/openopq-client/actions/workflows/ci.yml/badge.svg?branch=main"></a>
   <a href="./go.mod"><img alt="Go version" src="https://img.shields.io/github/go-mod/go-version/Airexplosion/openopq-client?style=flat-square&amp;color=31788c&amp;logo=go&amp;logoColor=white"></a>
-  <a href="#usage"><img alt="Commercial use not granted" src="https://img.shields.io/badge/commercial%20use-not%20granted-77516f?style=flat-square"></a>
+  <a href="./LICENSE.md"><img alt="PolyForm Noncommercial 1.0.0" src="https://img.shields.io/badge/license-PolyForm%20Noncommercial-77516f?style=flat-square"></a>
 </p>
 
 <p align="center"><a href="https://github.com/Airexplosion/openopq-client/releases/latest"><b>↓ Download</b></a>　·　<a href="./docs/guide.en.md">User guide</a>　·　<a href="https://github.com/Airexplosion/openopq-client/issues">Issues</a></p>
@@ -46,3 +46,5 @@ The template enables OPQ API and OneBot 11. Set `Protocol` to `all` to enable On
 ## Usage rights
 
 This project grants no permission for commercial use. Third-party components retain their own license terms.
+
+[PolyForm Noncommercial 1.0.0](./LICENSE.md) · [Third-party notices](./THIRD-PARTY-NOTICES.txt)

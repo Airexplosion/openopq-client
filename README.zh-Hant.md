@@ -6,7 +6,7 @@
   <a href="https://github.com/Airexplosion/openopq-client/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/Airexplosion/openopq-client?style=flat-square&amp;color=7965cc&amp;logo=github"></a>
   <a href="https://github.com/Airexplosion/openopq-client/actions/workflows/ci.yml"><img alt="Client CI" src="https://github.com/Airexplosion/openopq-client/actions/workflows/ci.yml/badge.svg?branch=main"></a>
   <a href="./go.mod"><img alt="Go version" src="https://img.shields.io/github/go-mod/go-version/Airexplosion/openopq-client?style=flat-square&amp;color=31788c&amp;logo=go&amp;logoColor=white"></a>
-  <a href="#usage"><img alt="Commercial use not granted" src="https://img.shields.io/badge/commercial%20use-not%20granted-77516f?style=flat-square"></a>
+  <a href="./LICENSE.md"><img alt="PolyForm Noncommercial 1.0.0" src="https://img.shields.io/badge/license-PolyForm%20Noncommercial-77516f?style=flat-square"></a>
 </p>
 
 <p align="center"><a href="https://github.com/Airexplosion/openopq-client/releases/latest"><b>↓ 下載用戶端</b></a>　·　<a href="./docs/guide.zh-Hant.md">使用指南</a>　·　<a href="https://github.com/Airexplosion/openopq-client/issues">回報問題</a></p>
@@ -46,3 +46,5 @@ chmod +x ./openopq
 ## 使用授權
 
 本專案未授予商業使用許可。第三方元件適用各自的授權條款。
+
+[PolyForm Noncommercial 1.0.0](./LICENSE.md) · [Third-party notices](./THIRD-PARTY-NOTICES.txt)

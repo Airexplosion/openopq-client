@@ -31,7 +31,7 @@ def main():
                        cwd=ROOT, env=env, check=True)
         documents = sorted(ROOT.glob("README*.md")) + sorted((ROOT / "docs").glob("guide*.md"))
         documents.append(ROOT / "docs/assets/banner.svg")
-        resources = ["Config.example.json"] + [p.relative_to(ROOT).as_posix() for p in documents]
+        resources = ["Config.example.json", "LICENSE.md", "THIRD-PARTY-NOTICES.txt"] + [p.relative_to(ROOT).as_posix() for p in documents]
         for source in resources:
             destination = stage / source
             destination.parent.mkdir(parents=True, exist_ok=True)
