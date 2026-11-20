@@ -29,13 +29,18 @@ def main():
         flags = f"-s -w -X openopq/internal/buildinfo.Version={VERSION} -X openopq/internal/buildinfo.Commit={commit} -X openopq/internal/buildinfo.BuiltAt={built}"
         subprocess.run(["go", "build", "-trimpath", "-ldflags", flags, "-o", str(stage / executable), "./cmd/openopq"],
                        cwd=ROOT, env=env, check=True)
-        for source in ("Config.example.json", "README.md"):
-            (stage / source).write_bytes((ROOT / source).read_bytes())
+        documents = sorted(ROOT.glob("README*.md")) + sorted((ROOT / "docs").glob("guide*.md"))
+        documents.append(ROOT / "docs/assets/banner.svg")
+        resources = ["Config.example.json"] + [p.relative_to(ROOT).as_posix() for p in documents]
+        for source in resources:
+            destination = stage / source
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes((ROOT / source).read_bytes())
         metadata = {"version": VERSION, "commit": commit, "os": target_os, "arch": arch,
                     "built_at": built, "client_only": True,
                     "binary_sha256": hashlib.sha256((stage / executable).read_bytes()).hexdigest()}
         (stage / "BUILD.json").write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
-        members = [executable, "Config.example.json", "README.md", "BUILD.json"]
+        members = [executable, *resources, "BUILD.json"]
         if target_os == "windows":
             archive = output / (name + ".zip")
             with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as target:
