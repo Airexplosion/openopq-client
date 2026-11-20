@@ -9,7 +9,7 @@ import tarfile
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = "v0.1.0"
+VERSION = "v0.1.1"
 TARGETS = [("windows", "amd64"), ("linux", "amd64"), ("linux", "arm64"),
            ("darwin", "amd64"), ("darwin", "arm64")]
 
@@ -31,7 +31,7 @@ def main():
                        cwd=ROOT, env=env, check=True)
         documents = sorted(ROOT.glob("README*.md")) + sorted((ROOT / "docs").glob("guide*.md"))
         documents.append(ROOT / "docs/assets/banner.svg")
-        resources = ["Config.example.json", "LICENSE.md", "THIRD-PARTY-NOTICES.txt"] + [p.relative_to(ROOT).as_posix() for p in documents]
+        resources = ["Config.example.json", "go.mod", "LICENSE.md", "THIRD-PARTY-NOTICES.txt"] + [p.relative_to(ROOT).as_posix() for p in documents]
         for source in resources:
             destination = stage / source
             destination.parent.mkdir(parents=True, exist_ok=True)

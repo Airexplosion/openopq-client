@@ -1,0 +1,53 @@
+name: Publish client release
+on:
+  push:
+    branches: ['release/v*']
+permissions:
+  contents: read
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: go.mod
+      - name: Check release version
+        run: |
+          version="${GITHUB_REF_NAME#release/}"
+          [[ "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          test "$version" = "$(python -c 'from tools.package import VERSION; print(VERSION)')"
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+      - run: go test ./...
+      - run: go vet ./...
+      - run: python tools/package.py
+      - name: Verify release artifacts
+        run: |
+          cd "dist/$VERSION"
+          test "$(wc -l < SHA256SUMS.txt)" -eq 5
+          sha256sum --check SHA256SUMS.txt
+          for archive in *.tar.gz *.zip; do
+            root="${archive%.tar.gz}"
+            root="${root%.zip}"
+            dest="$(mktemp -d)"
+            if [[ "$archive" = *.zip ]]; then unzip -q "$archive" -d "$dest"; else tar -xzf "$archive" -C "$dest"; fi
+            dir="$dest/$root"
+            for file in Config.example.json go.mod LICENSE.md THIRD-PARTY-NOTICES.txt README{,.en,.ja,.zh-Hant}.md docs/guide{,.en,.ja,.zh-Hant}.md docs/assets/banner.svg; do
+              cmp "$dir/$file" "$GITHUB_WORKSPACE/$file"
+            done
+            bin=openopq
+            [[ "$archive" != *.zip ]] || bin=openopq.exe
+            jq -e --arg v "$VERSION" --arg c "$GITHUB_SHA" '.version == $v and .commit == $c' "$dir/BUILD.json"
+            test "$(sha256sum "$dir/$bin" | cut -d' ' -f1)" = "$(jq -r .binary_sha256 "$dir/BUILD.json")"
+            if [[ "$root" = *-linux-amd64 ]]; then "$dir/$bin" --version | grep -F "$VERSION ($GITHUB_SHA)"; fi
+          done
+      - name: Publish verified archives
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$VERSION" "dist/$VERSION/"*.zip "dist/$VERSION/"*.tar.gz "dist/$VERSION/SHA256SUMS.txt" --target "$GITHUB_SHA" --title "OpenOPQ Client $VERSION" --notes-file "docs/releases/$VERSION.md" --latest
