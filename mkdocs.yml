@@ -1,0 +1,31 @@
+site_name: OpenOPQ Client
+site_url: https://airexplosion.github.io/openopq-client/
+repo_url: https://github.com/Airexplosion/openopq-client
+repo_name: Airexplosion/openopq-client
+docs_dir: website/manual
+site_dir: build/pages
+theme:
+  name: material
+  language: zh
+  font: false
+  palette:
+    scheme: slate
+    primary: black
+    accent: deep purple
+  features:
+    - navigation.sections
+    - content.code.copy
+plugins:
+  - search:
+      lang: [zh, en]
+markdown_extensions:
+  - tables
+  - fenced_code
+nav:
+  - 首页: index.md
+  - 开始使用: start.md
+  - API 参考:
+      - OneBot 11: api/v11.md
+      - OneBot 12: api/v12.md
+      - OPQ 原生接口: api/opq.md
+  - 实战示例: examples.md
