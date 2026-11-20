@@ -9,7 +9,7 @@
   <a href="./LICENSE.md"><img alt="PolyForm Noncommercial 1.0.0" src="https://img.shields.io/badge/license-PolyForm%20Noncommercial-77516f?style=flat-square"></a>
 </p>
 
-<p align="center"><a href="https://github.com/Airexplosion/openopq-client/releases/latest"><b>↓ 下载客户端</b></a>　·　<a href="./docs/guide.md">使用指南</a>　·　<a href="https://github.com/Airexplosion/openopq-client/issues">反馈问题</a></p>
+<p align="center"><a href="https://airexplosion.github.io/openopq-client/">官方网站</a>　·　<a href="https://github.com/Airexplosion/openopq-client/releases/latest"><b>↓ 下载客户端</b></a>　·　<a href="./docs/guide.md">使用指南</a>　·　<a href="https://github.com/Airexplosion/openopq-client/issues">反馈问题</a></p>
 
 在自己的电脑上扫码登录 QQ，把账号接到你的机器人。OpenOPQ Client 提供本地网页控制台，可以管理多个账号，也可以在服务器上无界面运行。
 

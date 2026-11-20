@@ -9,7 +9,7 @@
   <a href="./LICENSE.md"><img alt="PolyForm Noncommercial 1.0.0" src="https://img.shields.io/badge/license-PolyForm%20Noncommercial-77516f?style=flat-square"></a>
 </p>
 
-<p align="center"><a href="https://github.com/Airexplosion/openopq-client/releases/latest"><b>↓ ダウンロード</b></a>　·　<a href="./docs/guide.ja.md">利用ガイド</a>　·　<a href="https://github.com/Airexplosion/openopq-client/issues">問題を報告</a></p>
+<p align="center"><a href="https://airexplosion.github.io/openopq-client/">公式サイト</a>　·　<a href="https://github.com/Airexplosion/openopq-client/releases/latest"><b>↓ ダウンロード</b></a>　·　<a href="./docs/guide.ja.md">利用ガイド</a>　·　<a href="https://github.com/Airexplosion/openopq-client/issues">問題を報告</a></p>
 
 PC に表示した QR コードをスマートフォンの QQ で読み取り、ボットに QQ アカウントを接続します。複数のアカウントをローカルの管理画面で操作でき、サーバー上では画面なしでも動作します。
 

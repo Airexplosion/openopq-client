@@ -9,7 +9,7 @@
   <a href="./LICENSE.md"><img alt="PolyForm Noncommercial 1.0.0" src="https://img.shields.io/badge/license-PolyForm%20Noncommercial-77516f?style=flat-square"></a>
 </p>
 
-<p align="center"><a href="https://github.com/Airexplosion/openopq-client/releases/latest"><b>↓ Download</b></a>　·　<a href="./docs/guide.en.md">User guide</a>　·　<a href="https://github.com/Airexplosion/openopq-client/issues">Issues</a></p>
+<p align="center"><a href="https://airexplosion.github.io/openopq-client/">Website</a>　·　<a href="https://github.com/Airexplosion/openopq-client/releases/latest"><b>↓ Download</b></a>　·　<a href="./docs/guide.en.md">User guide</a>　·　<a href="https://github.com/Airexplosion/openopq-client/issues">Issues</a></p>
 
 Scan a QR code on your computer to connect a QQ account to your bot. Manage multiple accounts in the local web console, or run the client headless on a server.
 

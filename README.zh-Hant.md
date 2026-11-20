@@ -9,7 +9,7 @@
   <a href="./LICENSE.md"><img alt="PolyForm Noncommercial 1.0.0" src="https://img.shields.io/badge/license-PolyForm%20Noncommercial-77516f?style=flat-square"></a>
 </p>
 
-<p align="center"><a href="https://github.com/Airexplosion/openopq-client/releases/latest"><b>↓ 下載用戶端</b></a>　·　<a href="./docs/guide.zh-Hant.md">使用指南</a>　·　<a href="https://github.com/Airexplosion/openopq-client/issues">回報問題</a></p>
+<p align="center"><a href="https://airexplosion.github.io/openopq-client/">官方網站</a>　·　<a href="https://github.com/Airexplosion/openopq-client/releases/latest"><b>↓ 下載用戶端</b></a>　·　<a href="./docs/guide.zh-Hant.md">使用指南</a>　·　<a href="https://github.com/Airexplosion/openopq-client/issues">回報問題</a></p>
 
 在自己的電腦上掃碼登入 QQ，將帳號連到你的機器人。你可以透過本機網頁控制台管理多個帳號，也可以在伺服器上以無介面模式執行。
 
