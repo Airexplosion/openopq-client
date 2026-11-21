@@ -9,7 +9,7 @@ import tarfile
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = "v0.1.1"
+VERSION = "v0.1.2"
 TARGETS = [("windows", "amd64"), ("linux", "amd64"), ("linux", "arm64"),
            ("darwin", "amd64"), ("darwin", "arm64")]
 
