@@ -1775,6 +1775,11 @@ function renderStatus() {
   const source = status || session || {};
   const noSession = !app.sessionID;
   const stale = Boolean(app.statusError);
+  const oop = $("oop-enabled");
+  if (!oop.dataset.saving) {
+    oop.checked = status?.oop_enabled === true;
+    oop.disabled = stale || !status?.account || typeof status.oop_enabled !== "boolean";
+  }
   const loading = !noSession && !status && !stale;
 
   let phaseLabel = "";
@@ -5137,6 +5142,22 @@ function renderInitialState() {
 }
 
 function bindAllEvents() {
+  const oop = $("oop-enabled");
+  oop.addEventListener("change", async () => {
+    const sid = app.sessionID;
+    const enabled = oop.checked;
+    oop.dataset.saving = "true";
+    oop.disabled = true;
+    try {
+      await controlApi("oop", { method: "POST", session: sid, body: { enabled } });
+      if (sid === app.sessionID && app.status) app.status.oop_enabled = enabled;
+    } catch (error) {
+      showToast(error.message, "error");
+    } finally {
+      delete oop.dataset.saving;
+      renderStatus();
+    }
+  });
   bindNavigation();
   bindSessionControls();
   bindCopyButtons();

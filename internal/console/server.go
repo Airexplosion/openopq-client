@@ -56,6 +56,7 @@ type Options struct {
 }
 
 type State struct {
+	OOPEnabled   bool                  `json:"oop_enabled"`
 	SavedLogin   *bot.SavedLoginStatus `json:"saved_login,omitempty"`
 	Heartbeat    *bot.HeartbeatStatus  `json:"heartbeat,omitempty"`
 	Reconnect    *bot.ReconnectStatus  `json:"reconnect,omitempty"`
@@ -110,6 +111,7 @@ func (s *Server) Snapshot() State {
 	s.mu.RLock()
 	v, b := s.state, s.active
 	s.mu.RUnlock()
+	v.OOPEnabled = s.oopEnabled(v.Account)
 	v.Uptime = int64(time.Since(v.StartedAt).Seconds())
 	v.AppVersion, v.Commit, v.BuiltAt = buildinfo.Version, buildinfo.Commit, buildinfo.BuiltAt
 	if status, ok := b.(interface{ SavedLoginStatus() bot.SavedLoginStatus }); ok {
@@ -447,6 +449,7 @@ func (s *Server) monitor(b ManagedBot) {
 				}
 				s.mu.Unlock()
 				if e.Msg != nil {
+					s.oopCommand(ctx, b, e)
 					s.opt.Logger.Info("message received", "sender", e.Msg.SenderUin, "group", e.Msg.GroupUin)
 				} else if e.Notice != nil {
 					s.opt.Logger.Info("notice received")
@@ -697,6 +700,9 @@ func (s *Server) control(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.Method == http.MethodPost {
 		switch path {
+		case "oop":
+			s.oopControl(w, r)
+			return
 		case "login":
 			var input struct {
 				Account string `json:"account"`
