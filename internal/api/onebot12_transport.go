@@ -82,6 +82,7 @@ type oneBot12Runtime struct {
 	mu                sync.Mutex
 	config            OneBot12Config
 	runCancel         context.CancelFunc
+	deliveryCtx       context.Context
 	revision          uint64
 	subs              map[chan []byte]struct{}
 	events            []json.RawMessage
@@ -93,7 +94,7 @@ type oneBot12Runtime struct {
 
 func newOneBot12Runtime(s *Server) *oneBot12Runtime {
 	ctx, cancel := context.WithCancel(context.Background())
-	o := &oneBot12Runtime{s: s, ctx: ctx, cancel: cancel, subs: map[chan []byte]struct{}{}, notify: make(chan struct{}), queue: make(chan []byte, 256)}
+	o := &oneBot12Runtime{s: s, ctx: ctx, cancel: cancel, subs: map[chan []byte]struct{}{}, notify: make(chan struct{})}
 	o.config, _ = NormalizeOneBot12Config(OneBot12Config{})
 	if s.opts.OneBot12Peers != nil {
 		go o.bridgePeers()
@@ -177,10 +178,14 @@ func (o *oneBot12Runtime) publish(b []byte) {
 			delete(o.subs, ch)
 		}
 	}
+	queue, deliveryCtx := o.queue, o.deliveryCtx
 	o.mu.Unlock()
+	if deliveryCtx == nil {
+		return
+	}
 	select {
-	case o.queue <- b:
-	case <-o.ctx.Done():
+	case queue <- b:
+	case <-deliveryCtx.Done():
 	}
 }
 func (o *oneBot12Runtime) meta(detail string, extra map[string]any) []byte {
@@ -444,6 +449,9 @@ func (o *oneBot12Runtime) configure(c OneBot12Config) {
 		o.runCancel()
 	}
 	ctx, cancel := context.WithCancel(o.ctx)
+	// A retired worker must never consume events for the new configuration.
+	queue := make(chan []byte, 256)
+	o.queue, o.deliveryCtx = queue, ctx
 	o.runCancel = cancel
 	o.config = c
 	o.revision++
@@ -456,7 +464,7 @@ func (o *oneBot12Runtime) configure(c OneBot12Config) {
 		o.status = append(o.status, OneBotEndpointStatus{Kind: "reverse_ws", Index: i})
 	}
 	o.mu.Unlock()
-	go o.deliver(ctx, rev, c)
+	go o.deliver(ctx, rev, c, queue)
 	go func() {
 		tick := time.NewTicker(time.Second)
 		defer tick.Stop()
@@ -504,12 +512,12 @@ func (o *oneBot12Runtime) endpoint(rev uint64, kind string, index int, ok, conne
 		}
 	}
 }
-func (o *oneBot12Runtime) deliver(ctx context.Context, rev uint64, c OneBot12Config) {
+func (o *oneBot12Runtime) deliver(ctx context.Context, rev uint64, c OneBot12Config, queue <-chan []byte) {
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case b := <-o.queue:
+		case b := <-queue:
 			for i, p := range c.Webhooks {
 				o.post(ctx, rev, i, p, b)
 			}
