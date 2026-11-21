@@ -48,3 +48,7 @@ go test ./...
 go vet ./...
 go build -trimpath -o openopq ./cmd/openopq
 ```
+
+## 聊天状态指令
+
+在群聊或私聊单独发送 `#oop`，客户端会回复版本、运行平台和运行时长。用登录客户端的 QQ 发送 `#oop off` 关闭回复，或发送 `#oop on` 恢复。也可以在 WebUI 的「网关与会话设置」里切换。默认开启，每个账号独立保存。

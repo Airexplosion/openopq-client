@@ -48,3 +48,7 @@ go test ./...
 go vet ./...
 go build -trimpath -o openopq ./cmd/openopq
 ```
+
+## 聊天狀態指令
+
+在群組或私聊單獨傳送 `#oop`，即可查看版本、執行平台和運行時間。用登入用戶端的 QQ 傳送 `#oop off` 關閉回覆，或用 `#oop on` 重新開啟。也可在 WebUI 的閘道與工作階段設定中切換。預設開啟，各帳號獨立儲存設定。

@@ -48,3 +48,7 @@ go test ./...
 go vet ./...
 go build -trimpath -o openopq ./cmd/openopq
 ```
+
+## Chat status command
+
+Send `#oop` on its own in a group or private chat to see the client version, platform, and uptime. From the signed-in QQ account, send `#oop off` to disable replies or `#oop on` to restore them. The same switch is available in the WebUI gateway and session settings. Replies are enabled by default and the setting is saved per account.
